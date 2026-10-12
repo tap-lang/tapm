@@ -81,7 +81,13 @@ tap build                # 产物在 build/tapm
 - **符号链接优先**（本地改动实时生效）。Windows 上创建符号链接需要管理员权限或
   开启开发者模式。
 
-完整的包管理规范见 tap 仓库的 `docs/package.md`。
+## 文档
+
+- [docs/design.md](docs/design.md) —— 完整的包管理设计规范：目录布局、清单格式、
+  锁文件、分阶段计划、**设计决定记录（含被否方案和理由）**、已知限制、还没做的事。
+
+tap 编译器那一侧的包相关行为（模块解析顺序、包边界规则、`entry` 读取、`tap build` /
+`tap run` 包模式）记在 tap 仓库的 `docs/module.md`。
 
 ## 状态
 
