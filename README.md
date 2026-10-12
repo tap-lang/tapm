@@ -32,24 +32,45 @@ bar = { path = "../bar" }
 
 ## 怎么用
 
-需要 tap 编译器在 `PATH` 里（或用完整路径）。在**包根目录**下执行：
+需要 tap 编译器在 `PATH` 里（或用完整路径）。**在目标项目的包根目录**下执行：
 
 ```bash
-tap run <tapm 仓库路径>/main.tp -- install   # 装依赖
-tap run <tapm 仓库路径>/main.tp -- list      # 列出已接上的依赖
-tap run <tapm 仓库路径>/main.tp -- help
+tap run <tapm 仓库路径>/src/main.tp -- install   # 装依赖
+tap run <tapm 仓库路径>/src/main.tp -- list      # 列出已接上的依赖
+tap run <tapm 仓库路径>/src/main.tp -- help
 ```
 
-发布后会编译成 `tapm` 二进制，直接 `tapm install` 即可。
+发布后会编译成 `tapm` 二进制，装到 `PATH` 里直接 `tapm install` 即可。
+
+## tapm 自己也是一个 tap 包
+
+它遵守自己推行的那套约定：
+
+```text
+tapm/
+├─ package.toml          name = "tapm", entry = "src/main.tp"
+├─ src/                  main.tp / toml.tp / package.tp / install.tp
+└─ packages/             依赖（tapm 没有依赖，所以为空，不进版本控制）
+```
+
+所以在 tapm 自己的目录里可以直接用**包模式**（不带文件参数）：
+
+```bash
+cd <tapm 仓库路径>
+tap run -- help          # 等价于 tap run src/main.tp -- help
+tap build                # 产物在 build/tapm
+```
+
+因为它是个包，别人也能 `import tapm.toml` 这样按包边界导入它的模块。
 
 ## 源码
 
 | 文件 | 内容 |
 |---|---|
-| `main.tp` | 命令分派 |
-| `toml.tp` | TOML 子集解析（扁平点分键表示，绕开 tap 没有 map） |
-| `package.tp` | 清单加载、路径拼接 |
-| `install.tp` | 依赖展开（平铺去重）+ 符号链接 + 锁文件 |
+| `src/main.tp` | 命令分派 |
+| `src/toml.tp` | TOML 子集解析（扁平点分键表示，绕开 tap 没有 map） |
+| `src/package.tp` | 清单加载、路径拼接 |
+| `src/install.tp` | 依赖展开（平铺去重）+ 符号链接 + 锁文件 |
 
 ## 设计要点
 

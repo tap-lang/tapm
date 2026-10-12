@@ -4,11 +4,15 @@
 //   tapm list      列出 packages/ 里已经接上的依赖
 //   tapm help      显示用法
 //
-// 在**目标项目的包根目录**下运行。现阶段用 tap 编译器直接跑源码：
+// tapm 自己也是一个 tap 包（package.toml + src/），所以在目标项目的包根目录下这样跑：
 //
-//   tap run <tapm 仓库路径>/main.tp -- install
+//   tap run <tapm 仓库路径>/src/main.tp -- install
 //
-// 发布时用 `tap` 把它编译成 `tapm` 二进制，装到 PATH 里就能直接 `tapm install`。
+// 或者先 cd 到 tapm 自己的目录，用包模式（不带文件参数）：
+//
+//   tap run -- install
+//
+// 发布时用 `tap build` 编译成二进制，装到 PATH 里就能直接 `tapm install`。
 import std.env as env;
 import std.fs as fs;
 import std.vec as vec;
