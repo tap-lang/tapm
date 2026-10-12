@@ -1,0 +1,297 @@
+// package.toml / package.lock.toml 用的 TOML 子集解析。
+//
+// 只覆盖清单需要的部分：`[段]`、`键 = "字符串"`、`键 = 整数`、`键 = { 内联表 }`、
+// `#` 注释。不处理数组、多行字符串、日期，也不处理字符串转义。
+//
+// 解析结果是**扁平的「点分键 → 值」两张并行表**：
+//
+//     [package]
+//     name = "x"                 ->  "package.name"         = "x"
+//
+//     [dependencies]
+//     bar = { path = "../bar" }  ->  "dependencies.bar.path" = "../bar"
+//     foo = "1.0.0"              ->  "dependencies.foo"      = "1.0.0"
+//
+// 这样不需要 map（tap 没有哈希表），线性查找对清单这种规模完全够。
+import std.parse;
+import std.string_builder as sb;
+import std.vec as vec;
+
+// tap 没有字符串 `+`，拼接要走 StringBuilder。
+fn concat3(a: string, b: string, c: string): string {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, a);
+    builder = sb.append(builder, b);
+    builder = sb.append(builder, c);
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}
+
+pub struct Toml {
+    keys: Vec<string>,
+    values: Vec<string>,
+}
+
+// 把下标转成字符串，用于 `[[表]]` 的编号。
+fn format_index(value: i64): string {
+    return parse.format_i64(value);
+}
+
+// 空文档。给「解析失败时想返回一个占位值」的调用方用。
+pub fn empty(): Toml {
+    return Toml { keys: vec.new(), values: vec.new() };
+}
+
+// 取一行在 text 里的结束位置（不含换行符本身）。
+fn line_end_of(text: string, start: uint): uint {
+    let length: uint = text.len();
+    let index: uint = start;
+    while (index < length) {
+        let byte: u8 = text.byte_at(index);
+        if (byte == 10 || byte == 13) {
+            return index;
+        }
+        index = index + 1;
+    }
+    return length;
+}
+
+// 跳过一个换行（\n 或 \r\n）。
+fn next_line_start(text: string, end: uint): uint {
+    let length: uint = text.len();
+    let index: uint = end;
+    if (index < length && text.byte_at(index) == 13) {
+        index = index + 1;
+    }
+    if (index < length && text.byte_at(index) == 10) {
+        index = index + 1;
+    }
+    return index;
+}
+
+fn is_space(byte: u8): bool {
+    return byte == 32 || byte == 9;
+}
+
+// 去掉两端空白。
+fn trim(text: string): string {
+    let length: uint = text.len();
+    let start: uint = 0;
+    while (start < length && is_space(text.byte_at(start))) {
+        start = start + 1;
+    }
+    let end: uint = length;
+    while (end > start && is_space(text.byte_at(end - 1))) {
+        end = end - 1;
+    }
+    return text.slice(start, end);
+}
+
+// 去掉 `#` 之后的内容。
+fn strip_comment(line: string): string {
+    let length: uint = line.len();
+    let index: uint = 0;
+    while (index < length) {
+        if (line.byte_at(index) == 35) { // '#'
+            return line.slice(0, index);
+        }
+        index = index + 1;
+    }
+    return line;
+}
+
+// 把一条记录塞进并行表。
+fn push_entry(keys: Vec<string>, values: Vec<string>, key: string, value: string): Toml {
+    let next_keys: Vec<string> = vec.push(keys, key);
+    let next_values: Vec<string> = vec.push(values, value);
+    return Toml { keys: next_keys, values: next_values };
+}
+
+// 解析 `{ k = "v", k2 = "v2" }` 的内容部分，返回两串（键、值）。
+// tap 不能一次返回两个值，所以用「键在前、值在后」拼成一个 Vec。
+fn parse_inline_table(body: string): Vec<string> {
+    let parts: Vec<string> = vec.new();
+    let length: uint = body.len();
+    let index: uint = 0;
+    let start: uint = 0;
+
+    while (index <= length) {
+        let at_end: bool = index == length;
+        let is_comma: bool = !at_end && body.byte_at(index) == 44; // ','
+        if (at_end || is_comma) {
+            let piece: string = trim(body.slice(start, index));
+            if (piece.len() > 0) {
+                let equals: uint = 0;
+                let found: bool = false;
+                let scan: uint = 0;
+                while (scan < piece.len()) {
+                    if (!found && piece.byte_at(scan) == 61) { // '='
+                        equals = scan;
+                        found = true;
+                    }
+                    scan = scan + 1;
+                }
+                if (found) {
+                    let key: string = trim(piece.slice(0, equals));
+                    let value: string = trim(piece.slice(equals + 1, piece.len()));
+                    // 内联表里的字符串值同样要脱引号。
+                    if (value.len() >= 2 && value.byte_at(0) == 34 &&
+                        value.byte_at(value.len() - 1) == 34) {
+                        value = value.slice(1, value.len() - 1);
+                    }
+                    parts = vec.push(parts, key);
+                    parts = vec.push(parts, value);
+                }
+            }
+            start = index + 1;
+        }
+        index = index + 1;
+    }
+    return parts;
+}
+
+// 解析清单文本。格式不对时返回 Err（不静默跳过坏行）。
+pub fn parse(text: string): Result<Toml, string> {
+    let document: Toml = Toml { keys: vec.new(), values: vec.new() };
+    let section: string = "";
+    let array_index: i64 = 0;
+    let length: uint = text.len();
+    let index: uint = 0;
+
+    while (index < length) {
+        let end: uint = line_end_of(text, index);
+        let raw: string = text.slice(index, end);
+        index = next_line_start(text, end);
+
+        let line: string = trim(strip_comment(raw));
+        if (line.len() == 0) {
+            continue;
+        }
+
+        if (line.byte_at(0) == 91) { // '['
+            if (line.byte_at(line.len() - 1) != 93) { // ']'
+                return Result<Toml, string>.Err("malformed section header");
+            }
+            // `[[name]]` 是表数组（锁文件用的 Cargo.lock 风格）：按出现顺序编号，
+            // 展开成 `name.0.` / `name.1.` 这样的前缀。
+            let is_array: bool = line.len() >= 4 && line.byte_at(1) == 91;
+            if (is_array) {
+                if (line.byte_at(line.len() - 2) != 93) {
+                    return Result<Toml, string>.Err("malformed array table header");
+                }
+                let name: string = trim(line.slice(2, line.len() - 2));
+                section = concat3(name, ".", format_index(array_index));
+                array_index = array_index + 1;
+            } else {
+                section = trim(line.slice(1, line.len() - 1));
+            }
+            continue;
+        }
+
+        // 找等号
+        let equals: uint = 0;
+        let found: bool = false;
+        let scan: uint = 0;
+        while (scan < line.len()) {
+            if (!found && line.byte_at(scan) == 61) { // '='
+                equals = scan;
+                found = true;
+            }
+            scan = scan + 1;
+        }
+        if (!found) {
+            return Result<Toml, string>.Err("malformed key/value line");
+        }
+
+        let key: string = trim(line.slice(0, equals));
+        let value: string = trim(line.slice(equals + 1, line.len()));
+        if (key.len() == 0 || value.len() == 0) {
+            return Result<Toml, string>.Err("malformed key/value line");
+        }
+
+        let prefix: string = "";
+        if (section.len() > 0) {
+            prefix = concat3(section, ".", "");
+        }
+
+        if (value.byte_at(0) == 123) { // '{'
+            // 内联表：去掉花括号，展开成 `前缀键.子键`
+            if (value.byte_at(value.len() - 1) != 125) { // '}'
+                return Result<Toml, string>.Err("malformed inline table");
+            }
+            let inner: string = trim(value.slice(1, value.len() - 1));
+            let parts: Vec<string> = parse_inline_table(inner);
+            let item: uint = 0;
+            while (item + 1 < parts.len()) {
+                let full: string = concat3(concat3(prefix, key, "."), parts.get(item), "");
+                document = push_entry(document.keys, document.values, full, parts.get(item + 1));
+                item = item + 2;
+            }
+            vec.free(parts);
+            continue;
+        }
+
+        if (value.byte_at(0) == 34) { // '"'
+            if (value.len() < 2 || value.byte_at(value.len() - 1) != 34) {
+                return Result<Toml, string>.Err("unterminated string value");
+            }
+            document = push_entry(document.keys, document.values, concat3(prefix, key, ""),
+                value.slice(1, value.len() - 1));
+            continue;
+        }
+
+        // 裸值（整数、布尔）：原样保留
+        document = push_entry(document.keys, document.values, concat3(prefix, key, ""), value);
+    }
+
+    return Result<Toml, string>.Ok(document);
+}
+
+// 按键取值；没有这个键返回空串。
+pub fn get(document: Toml, key: string): string {
+    // 嵌套字段上不能直接调方法，先绑定到局部变量。
+    let keys: Vec<string> = document.keys;
+    let values: Vec<string> = document.values;
+    let index: uint = 0;
+    while (index < keys.len()) {
+        if (keys.get(index) == key) {
+            return values.get(index);
+        }
+        index = index + 1;
+    }
+    return "";
+}
+
+// 有没有这个键。
+pub fn has(document: Toml, key: string): bool {
+    let keys: Vec<string> = document.keys;
+    let index: uint = 0;
+    while (index < keys.len()) {
+        if (keys.get(index) == key) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+// 取所有以 prefix 开头的键（含 prefix 本身）。调用方负责 vec.free。
+pub fn keys_with_prefix(document: Toml, prefix: string): Vec<string> {
+    let matched: Vec<string> = vec.new();
+    let keys: Vec<string> = document.keys;
+    let index: uint = 0;
+    while (index < keys.len()) {
+        let key: string = keys.get(index);
+        if (key.len() >= prefix.len() && key.slice(0, prefix.len()) == prefix) {
+            matched = vec.push(matched, key);
+        }
+        index = index + 1;
+    }
+    return matched;
+}
+
+pub fn free(document: Toml): i32 {
+    vec.free(document.keys);
+    return vec.free(document.values);
+}

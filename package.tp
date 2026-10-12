@@ -1,0 +1,183 @@
+// 包清单（package.toml）和锁文件（package.lock.toml）的读写。
+//
+// 布局约定见 docs/package.md：
+//     myapp/
+//     ├─ package.toml
+//     ├─ src/
+//     └─ packages/        <- tapm install 把依赖接到这里
+import std.fs as fs;
+import std.string_builder as sb;
+import std.vec as vec;
+import toml;
+
+// 拼接路径。tap 没有字符串 `+`，这里集中做。
+pub fn join_path(left: string, right: string): string {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, left);
+    builder = sb.append(builder, "/");
+    builder = sb.append(builder, right);
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}
+
+// 一个依赖。阶段 1 只支持 path 依赖，所以 path 是必填的。
+pub struct Dependency {
+    name: string,
+    path: string,
+}
+
+// 一个包的清单。
+pub struct Manifest {
+    root: string,             // 包根目录（绝对或相对于当前目录）
+    name: string,
+    version: string,
+    entry: string,
+    dependencies: Vec<Dependency>,
+}
+
+// 把 `dependencies.<名字>` 这类键的前缀切出来。
+fn dependency_prefix(): string {
+    return "dependencies.";
+}
+
+// 读一个目录下的清单。目录里没有 package.toml 时返回 Err。
+pub fn load_manifest(root: string): Result<Manifest, string> {
+    let path: string = join_path(root, "package.toml");
+    let loaded: Result<string, string> = fs.read_text(path);
+    if (is_err(loaded)) {
+        return Result<Manifest, string>.Err("no package.toml in this directory");
+    }
+    let text: string = unwrap_or(loaded, "");
+
+    let parsed: Result<Toml, string> = toml.parse(text);
+    if (is_err(parsed)) {
+        return Result<Manifest, string>.Err("cannot parse package.toml");
+    }
+    let document: Toml = unwrap_or(parsed, toml.empty());
+
+    let name: string = toml.get(document, "package.name");
+    let version: string = toml.get(document, "package.version");
+    let entry: string = toml.get(document, "package.entry");
+    if (name.len() == 0) {
+        toml.free(document);
+        return Result<Manifest, string>.Err("package.toml has no [package] name");
+    }
+    if (entry.len() == 0) {
+        toml.free(document);
+        return Result<Manifest, string>.Err("package.toml has no [package] entry");
+    }
+
+    // 依赖名 = `dependencies.` 后面、下一个点之前的那一段。
+    let prefix: string = dependency_prefix();
+    let all_keys: Vec<string> = toml.keys_with_prefix(document, prefix);
+    let names: Vec<string> = vec.new();
+    let paths: Vec<string> = vec.new();
+    let index: uint = 0;
+    while (index < all_keys.len()) {
+        let key: string = all_keys.get(index);
+        let rest: string = key.slice(prefix.len(), key.len());
+        // 只认 `dependencies.<名>`（表形式）或 `dependencies.<名>.path`（内联表形式）。
+        let dot: i64 = find_byte(rest, 46); // '.'
+        let dependency_name: string = "";
+        if (dot < 0) {
+            dependency_name = rest;
+        } else {
+            dependency_name = rest.slice(0, dot);
+        }
+        if (dependency_name.len() > 0 && !contains(names, dependency_name)) {
+            names = vec.push(names, dependency_name);
+            paths = vec.push(paths,
+                toml.get(document, join_key(prefix, dependency_name, ".path")));
+        }
+        index = index + 1;
+    }
+    vec.free(all_keys);
+    toml.free(document);
+
+    let dependencies: Vec<Dependency> = vec.new();
+    let item: uint = 0;
+    while (item < names.len()) {
+        dependencies = vec.push(dependencies, Dependency {
+            name: names.get(item),
+            path: paths.get(item),
+        });
+        item = item + 1;
+    }
+    vec.free(names);
+    vec.free(paths);
+
+    return Result<Manifest, string>.Ok(Manifest {
+        root: root,
+        name: name,
+        version: version,
+        entry: entry,
+        dependencies: dependencies,
+    });
+}
+
+// 空清单，给「加载失败时想返回占位值」的调用方用。
+pub fn blank_manifest(): Manifest {
+    return Manifest {
+        root: "",
+        name: "",
+        version: "",
+        entry: "",
+        dependencies: vec.new(),
+    };
+}
+
+// 拼三段键：prefix + name + suffix。
+fn join_key(prefix: string, name: string, suffix: string): string {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, prefix);
+    builder = sb.append(builder, name);
+    builder = sb.append(builder, suffix);
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}
+
+// 在 text 里找第一个 byte；找不到返回 -1。
+pub fn find_byte(text: string, byte: u8): i64 {
+    let index: uint = 0;
+    while (index < text.len()) {
+        if (text.byte_at(index) == byte) {
+            let position: i64 = index; // uint -> i64 是隐式转换
+            return position;
+        }
+        index = index + 1;
+    }
+    return -1;
+}
+
+// 字符串数组里有没有这个值。
+pub fn contains(values: Vec<string>, value: string): bool {
+    let index: uint = 0;
+    while (index < values.len()) {
+        if (values.get(index) == value) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+pub fn free_manifest(manifest: Manifest): i32 {
+    return vec.free(manifest.dependencies);
+}
+
+// 把一个包写进锁文件用的文本片段。
+pub fn lock_entry(name: string, version: string, source: string): string {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, "[[package]]\nname = \"");
+    builder = sb.append(builder, name);
+    builder = sb.append(builder, "\"\nversion = \"");
+    builder = sb.append(builder, version);
+    builder = sb.append(builder, "\"\nsource = \"");
+    builder = sb.append(builder, source);
+    builder = sb.append(builder, "\"\n\n");
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}

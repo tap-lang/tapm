@@ -1,0 +1,93 @@
+// tapm：tap 的依赖管理。
+//
+//   tapm install   读 package.toml，把依赖接进 packages/
+//   tapm list      列出 packages/ 里已经接上的依赖
+//   tapm help      显示用法
+//
+// 在**目标项目的包根目录**下运行。现阶段用 tap 编译器直接跑源码：
+//
+//   tap run <tapm 仓库路径>/main.tp -- install
+//
+// 发布时用 `tap` 把它编译成 `tapm` 二进制，装到 PATH 里就能直接 `tapm install`。
+import std.env as env;
+import std.fs as fs;
+import std.vec as vec;
+import install;
+import package;
+
+fn print_usage() {
+    print("用法: tapm <命令>\n");
+    print("命令:\n");
+    print("  install   读 package.toml，把依赖接进 packages/\n");
+    print("  list      列出 packages/ 里已经接上的依赖\n");
+    print("  help      显示这条信息\n");
+}
+
+// main 不能返回 Result，也不能用 `?`，所以错误都在辅助函数里收口。
+fn run_install(root: string): i32 {
+    let result: Result<i32, string> = install.install(root);
+    if (is_err(result)) {
+        let message: string = match (result) {
+            Result.Ok(value) => "",
+            Result.Err(reason) => reason,
+        };
+        print("tapm: %s\n", message);
+        return 1;
+    }
+    print("已安装依赖\n");
+    return 0;
+}
+
+fn run_list(root: string): i32 {
+    let result: Result<Vec<string>, string> = install.list(root);
+    if (is_err(result)) {
+        let message: string = match (result) {
+            Result.Ok(value) => "",
+            Result.Err(reason) => reason,
+        };
+        print("tapm: %s\n", message);
+        return 1;
+    }
+
+    // unwrap_or 在「泛型结构体」上推不出类型参数，用 match。
+    let names: Vec<string> = match (result) {
+        Result.Ok(inner) => inner,
+        Result.Err(reason) => vec.new<string>(),
+    };
+    print("%u 个依赖\n", names.len());
+    let index: uint = 0;
+    while (index < names.len()) {
+        print("  %s\n", names.get(index));
+        index = index + 1;
+    }
+    vec.free(names);
+    return 0;
+}
+
+fn main(): i32 {
+    let arguments: Vec<string> = env.args();
+    if (arguments.len() < 2) {
+        print_usage();
+        vec.free(arguments);
+        return 1;
+    }
+
+    let command: string = arguments.get(1);
+    let root: string = ".";
+    let status: i32 = 0;
+
+    if (command == "install") {
+        status = run_install(root);
+    } else if (command == "list") {
+        status = run_list(root);
+    } else if (command == "help" || command == "--help" || command == "-h") {
+        print_usage();
+    } else {
+        print("tapm: 未知命令 '%s'\n", command);
+        print_usage();
+        status = 1;
+    }
+
+    vec.free(arguments);
+    return status;
+}

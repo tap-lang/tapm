@@ -1,0 +1,164 @@
+// 展开依赖并把它们接进 packages/。
+//
+// 阶段 1 只支持 path 依赖：把 `packages/<名字>` 做成指向清单里那个路径的符号链接。
+// 依赖平铺（不嵌套），传递依赖也拉平到同一层——tap 没有 ABI、没有 dyn，
+// 同一个包不需要多版本共存，所以平铺是安全的。
+import std.fs as fs;
+import std.string_builder as sb;
+import std.vec as vec;
+import package;
+
+// 符号链接的目标。
+//
+// 链接位于 `<包根>/packages/<名字>`，而清单里的 path 是相对包根的，
+// 所以相对路径要先把 packages/ 这一层退掉：`../bar` 变成 `../../bar`。
+fn link_target(path: string): string {
+    if (path.len() > 0 && path.byte_at(0) == 47) { // '/'：绝对路径，原样用
+        return path;
+    }
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, "../");
+    builder = sb.append(builder, path);
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}
+
+// 收集结果。
+//
+// Vec 是值类型（结构体里存的是指向堆的指针），在函数里 push 只改到副本的 len，
+// 调用方看不到——所以这里把三个表装进结构体一起返回。
+pub struct Collected {
+    names: Vec<string>,
+    targets: Vec<string>,
+    versions: Vec<string>,
+}
+
+// 收集全部依赖（含传递依赖），平铺去重。
+fn collect(root: string): Collected {
+    let names: Vec<string> = vec.new();
+    let targets: Vec<string> = vec.new();
+    let versions: Vec<string> = vec.new();
+    let roots: Vec<string> = vec.new();
+
+    roots = vec.push(roots, root);
+    let head: uint = 0;
+    while (head < roots.len()) {
+        let consumer: string = roots.get(head);
+        head = head + 1;
+
+        let loaded: Result<Manifest, string> = package.load_manifest(consumer);
+        if (is_err(loaded)) {
+            continue;
+        }
+        let manifest: Manifest = unwrap_or(loaded, package.blank_manifest());
+        // Vec 是值类型：manifest.dependencies 和下面这个局部变量共享同一块堆缓冲，
+        // 所以必须用完再释放，提前 free 会变成 use-after-free。
+        let dependencies: Vec<Dependency> = manifest.dependencies;
+
+        let index: uint = 0;
+        while (index < dependencies.len()) {
+            let dependency: Dependency = dependencies.get(index);
+            index = index + 1;
+
+            // 嵌套字段上不能直接调方法，先取出来。
+            let dependency_path: string = dependency.path;
+            if (dependency_path.len() == 0) {
+                continue; // 非 path 依赖阶段 1 不支持，跳过
+            }
+            if (package.contains(names, dependency.name)) {
+                continue;
+            }
+
+            let dependency_root: string =
+                package.join_path(consumer, dependency_path);
+            names = vec.push(names, dependency.name);
+            targets = vec.push(targets, link_target(dependency_path));
+            roots = vec.push(roots, dependency_root);
+
+            // TODO: 这里本该读依赖自己的清单拿版本号。实测「再调一次 load_manifest
+            // 并 free 掉结果」会段错误（use-after-free 的嫌疑最大，但还没定位到具体点），
+            // 所以先留空。锁文件的 version 字段因此是空的。
+            versions = vec.push(versions, "");
+        }
+
+        package.free_manifest(manifest);
+    }
+
+    vec.free(roots);
+    return Collected { names: names, targets: targets, versions: versions };
+}
+
+pub fn free_collected(collected: Collected): i32 {
+    vec.free(collected.versions);
+    vec.free(collected.targets);
+    return vec.free(collected.names);
+}
+
+// 写锁文件。格式参考 Cargo.lock：一张 `[[package]]` 数组。
+fn write_lock(
+    root: string, names: Vec<string>, versions: Vec<string>,
+    targets: Vec<string>): i64 {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, "# 自动生成，请勿手工修改\nversion = 1\n\n");
+
+    let index: uint = 0;
+    while (index < names.len()) {
+        builder = sb.append(builder, "[[package]]\nname = \"");
+        builder = sb.append(builder, names.get(index));
+        builder = sb.append(builder, "\"\nversion = \"");
+        builder = sb.append(builder, versions.get(index));
+        builder = sb.append(builder, "\"\nsource = \"path+");
+        builder = sb.append(builder, targets.get(index));
+        builder = sb.append(builder, "\"\n\n");
+        index = index + 1;
+    }
+
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return fs.write_text(package.join_path(root, "package.lock.toml"), text);
+}
+
+// 装依赖：读清单 → 展开（含传递）→ 在 packages/ 下建符号链接 → 写锁文件。
+pub fn install(root: string): Result<i32, string> {
+    let collected: Collected = collect(root);
+    let names: Vec<string> = collected.names;
+    let targets: Vec<string> = collected.targets;
+    let versions: Vec<string> = collected.versions;
+
+    let packages: string = package.join_path(root, "packages");
+    if (fs.make_dir(packages) != 0) {
+        free_collected(collected);
+        return Result<i32, string>.Err("cannot create the packages directory");
+    }
+
+    let index: uint = 0;
+    while (index < names.len()) {
+        let link: string = package.join_path(packages, names.get(index));
+        // 旧链接先清掉；失败无所谓（本来就没有）。
+        fs.remove_entry(link);
+        if (fs.symlink(targets.get(index), link) != 0) {
+            free_collected(collected);
+            return Result<i32, string>.Err(
+                "cannot create a symbolic link (on Windows this needs developer mode)");
+        }
+        index = index + 1;
+    }
+
+    let written: i64 = write_lock(root, names, versions, targets);
+    free_collected(collected);
+
+    if (written < 0) {
+        return Result<i32, string>.Err("cannot write package.lock.toml");
+    }
+    return Result<i32, string>.Ok(0);
+}
+
+// 列出 packages/ 下已经接上的依赖，供 `tapm list` 用。
+pub fn list(root: string): Result<Vec<string>, string> {
+    let packages: string = package.join_path(root, "packages");
+    if (!fs.is_dir(packages)) {
+        return Result<Vec<string>, string>.Err("packages/ does not exist; run `tapm install`");
+    }
+    return fs.read_dir(packages);
+}
