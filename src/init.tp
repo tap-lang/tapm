@@ -15,6 +15,9 @@ import std.fs as fs;
 import std.string_builder as sb;
 import package;
 
+// 模板里的项目版本号，和 hello 保持一致。
+const TEMPLATE_VERSION: string = "0.1.0";
+
 // 拼两段。tap 没有字符串 `+`，集中在这里做。
 fn concat(left: string, right: string): string {
     let builder: StringBuilder = sb.new();
@@ -26,14 +29,13 @@ fn concat(left: string, right: string): string {
 }
 
 // package.toml 的内容，只有名字是变量。
-//
-// 版本号写死成 "0.1.0"（和 hello 一致）而不是提成 const：**顶层 `const` 用字符串
-// 初始化会报 `initializer type mismatch`**（函数内的 const 没事），是编译器的一个缺陷。
 fn package_toml(name: string): string {
     let builder: StringBuilder = sb.new();
     builder = sb.append(builder, "[package]\nname = \"");
     builder = sb.append(builder, name);
-    builder = sb.append(builder, "\"\nversion = \"0.1.0\"\nentry = \"src/main.tp\"\n");
+    builder = sb.append(builder, "\"\nversion = \"");
+    builder = sb.append(builder, TEMPLATE_VERSION);
+    builder = sb.append(builder, "\"\nentry = \"src/main.tp\"\n");
     let text: string = sb.to_string(builder);
     sb.free(builder);
     return text;
