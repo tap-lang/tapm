@@ -51,7 +51,7 @@ fn readme(name: string): string {
 
 // src/main.tp 的内容，与 hello 包逐字一致。
 fn main_tp(): string {
-    return "fn main(){\n    print(\"Hello tap!\\n\");\n}\n";
+    return "fn main(): i32 {\n    print(\"Hello tap!\\n\");\n    return 0;\n}\n";
 }
 
 // 项目名里不能出现路径分隔符或引号：前者会把文件写到目标目录之外，
