@@ -1,0 +1,124 @@
+// `tapm init`：按模板生成一个新项目的骨架。
+//
+// 模板内容取自 tap 仓库同级的 `hello` 包（`tap-lang/hello`），**内嵌在这里**。
+// 之所以内嵌而不是运行时去读那个目录：tapm 会被编译成二进制装到 PATH 里，
+// 运行时不能依赖仓库布局。改了 hello 记得同步这个文件。
+//
+// 生成的结构：
+//     <名字>/
+//     ├─ package.toml        name = "<名字>", entry = "src/main.tp"
+//     ├─ .gitignore          build/ 和 packages/
+//     ├─ README.md
+//     └─ src/
+//         └─ main.tp
+import std.fs as fs;
+import std.string_builder as sb;
+import package;
+
+// 拼两段。tap 没有字符串 `+`，集中在这里做。
+fn concat(left: string, right: string): string {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, left);
+    builder = sb.append(builder, right);
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}
+
+// package.toml 的内容，只有名字是变量。
+//
+// 版本号写死成 "0.1.0"（和 hello 一致）而不是提成 const：**顶层 `const` 用字符串
+// 初始化会报 `initializer type mismatch`**（函数内的 const 没事），是编译器的一个缺陷。
+fn package_toml(name: string): string {
+    let builder: StringBuilder = sb.new();
+    builder = sb.append(builder, "[package]\nname = \"");
+    builder = sb.append(builder, name);
+    builder = sb.append(builder, "\"\nversion = \"0.1.0\"\nentry = \"src/main.tp\"\n");
+    let text: string = sb.to_string(builder);
+    sb.free(builder);
+    return text;
+}
+
+// .gitignore 的内容：构建产物和依赖都不进版本控制。
+fn gitignore(): string {
+    return "# 构建产物和依赖不进版本控制\nbuild/\npackages/\n";
+}
+
+// README.md 的内容。
+fn readme(name: string): string {
+    return concat("# ", concat(name, "\n"));
+}
+
+// src/main.tp 的内容，与 hello 包逐字一致。
+fn main_tp(): string {
+    return "fn main(){\n    print(\"Hello tap!\\n\");\n}\n";
+}
+
+// 项目名里不能出现路径分隔符或引号：前者会把文件写到目标目录之外，
+// 后者会破坏生成的 package.toml。`.` 和 `..` 也不是合法的项目名。
+fn name_is_valid(name: string): bool {
+    if (name.len() == 0) {
+        return false;
+    }
+    if (name == "." || name == "..") {
+        return false;
+    }
+    let index: uint = 0;
+    while (index < name.len()) {
+        let byte: u8 = name.byte_at(index);
+        // 47 是 '/'，92 是 '\'，34 是 '"'
+        if (byte == 47 || byte == 92 || byte == 34) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+// 把四个文件写进 root。任何一个失败就返回 Err，此时目录里可能留下半成品。
+fn write_files(root: string, name: string): Result<i32, string> {
+    let manifest: string = package.join_path(root, "package.toml");
+    if (fs.write_text(manifest, package_toml(name)) < 0) {
+        return Result<i32, string>.Err("cannot write package.toml");
+    }
+
+    let ignores: string = package.join_path(root, ".gitignore");
+    if (fs.write_text(ignores, gitignore()) < 0) {
+        return Result<i32, string>.Err("cannot write .gitignore");
+    }
+
+    let readme_path: string = package.join_path(root, "README.md");
+    if (fs.write_text(readme_path, readme(name)) < 0) {
+        return Result<i32, string>.Err("cannot write README.md");
+    }
+
+    let source: string = package.join_path(root, "src");
+    if (fs.make_dir(source) != 0) {
+        return Result<i32, string>.Err("cannot create the src directory");
+    }
+    let main_path: string = package.join_path(source, "main.tp");
+    if (fs.write_text(main_path, main_tp()) < 0) {
+        return Result<i32, string>.Err("cannot write src/main.tp");
+    }
+
+    return Result<i32, string>.Ok(0);
+}
+
+// 在 parent 目录下建一个名为 name 的新项目。
+pub fn init(parent: string, name: string): Result<i32, string> {
+    if (!name_is_valid(name)) {
+        return Result<i32, string>.Err(
+            "invalid project name (no path separators or quotes)");
+    }
+
+    let root: string = package.join_path(parent, name);
+    // 已经存在就停手，绝不覆盖——宁可报错也不要冲掉别人的东西。
+    if (fs.is_dir(root)) {
+        return Result<i32, string>.Err("directory already exists");
+    }
+    if (fs.make_dir(root) != 0) {
+        return Result<i32, string>.Err("cannot create the project directory");
+    }
+
+    return write_files(root, name);
+}

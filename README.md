@@ -4,7 +4,9 @@
 
 ## 它做什么
 
-读项目根目录的 `package.toml`，把依赖接进 `packages/`，并写一份 `package.lock.toml`。
+- `tapm init <名字>` —— 按模板生成一个新项目的骨架
+- `tapm install` —— 读项目根目录的 `package.toml`，把依赖接进 `packages/`，并写一份
+  `package.lock.toml`
 
 项目布局约定：
 
@@ -32,15 +34,44 @@ bar = { path = "../bar" }
 
 ## 怎么用
 
-需要 tap 编译器在 `PATH` 里（或用完整路径）。**在目标项目的包根目录**下执行：
+需要 tap 编译器在 `PATH` 里（或用完整路径）。
 
 ```bash
-tap run <tapm 仓库路径>/src/main.tp -- install   # 装依赖
-tap run <tapm 仓库路径>/src/main.tp -- list      # 列出已接上的依赖
+tap run <tapm 仓库路径>/src/main.tp -- init demo    # 新建项目 demo/
+cd demo
+tap run <tapm 仓库路径>/src/main.tp -- install      # 装依赖（在项目根目录）
+tap run <tapm 仓库路径>/src/main.tp -- list         # 列出已接上的依赖
 tap run <tapm 仓库路径>/src/main.tp -- help
 ```
 
-发布后会编译成 `tapm` 二进制，装到 `PATH` 里直接 `tapm install` 即可。
+发布后会编译成 `tapm` 二进制，装到 `PATH` 里直接 `tapm init demo` 即可。
+
+## tapm init
+
+`tapm init demo` 在当前目录下建 `demo/`，内容取自 tap 仓库的 `hello` 包：
+
+```text
+demo/
+├─ package.toml          name = "demo", entry = "src/main.tp"
+├─ .gitignore            build/ 和 packages/
+├─ README.md
+└─ src/main.tp
+```
+
+接着就能直接构建：
+
+```bash
+cd demo
+tap build && ./build/demo     # 或 tap run
+```
+
+两条约束：
+
+- **目标目录已存在就报错，绝不覆盖。** 宁可失败也不要冲掉别人的东西。
+- 项目名里不能有路径分隔符（`/`、`\`）或引号——前者会把文件写到目标目录之外，
+  后者会破坏生成的 `package.toml`。
+
+**不做 `git init`**：tapm 的定位是「不调用任何外部命令，只操作文件系统」。
 
 ## tapm 自己也是一个 tap 包
 
@@ -49,7 +80,7 @@ tap run <tapm 仓库路径>/src/main.tp -- help
 ```text
 tapm/
 ├─ package.toml          name = "tapm", entry = "src/main.tp"
-├─ src/                  main.tp / toml.tp / package.tp / install.tp
+├─ src/                  main.tp / toml.tp / package.tp / install.tp / init.tp
 └─ packages/             依赖（tapm 没有依赖，所以为空，不进版本控制）
 ```
 
@@ -71,6 +102,7 @@ tap build                # 产物在 build/tapm
 | `src/toml.tp` | TOML 子集解析（扁平点分键表示，绕开 tap 没有 map） |
 | `src/package.tp` | 清单加载、路径拼接 |
 | `src/install.tp` | 依赖展开（平铺去重）+ 符号链接 + 锁文件 |
+| `src/init.tp` | `tapm init`：内嵌的 hello 模板 + 脚手架 |
 
 ## 设计要点
 

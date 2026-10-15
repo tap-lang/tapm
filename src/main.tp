@@ -1,8 +1,9 @@
 // tapm：tap 的依赖管理。
 //
-//   tapm install   读 package.toml，把依赖接进 packages/
-//   tapm list      列出 packages/ 里已经接上的依赖
-//   tapm help      显示用法
+//   tapm init <名字>   按模板生成一个新项目的骨架
+//   tapm install       读 package.toml，把依赖接进 packages/
+//   tapm list          列出 packages/ 里已经接上的依赖
+//   tapm help          显示用法
 //
 // tapm 自己也是一个 tap 包（package.toml + src/），所以在目标项目的包根目录下这样跑：
 //
@@ -16,15 +17,31 @@
 import std.env as env;
 import std.fs as fs;
 import std.vec as vec;
+import init;
 import install;
 import package;
 
 fn print_usage() {
     print("用法: tapm <命令>\n");
     print("命令:\n");
-    print("  install   读 package.toml，把依赖接进 packages/\n");
-    print("  list      列出 packages/ 里已经接上的依赖\n");
-    print("  help      显示这条信息\n");
+    print("  init <名字>   按模板生成一个新项目的骨架\n");
+    print("  install       读 package.toml，把依赖接进 packages/\n");
+    print("  list          列出 packages/ 里已经接上的依赖\n");
+    print("  help          显示这条信息\n");
+}
+
+fn run_init(name: string): i32 {
+    let result: Result<i32, string> = init.init(".", name);
+    if (is_err(result)) {
+        let message: string = match (result) {
+            Result.Ok(value) => "",
+            Result.Err(reason) => reason,
+        };
+        print("tapm: %s\n", message);
+        return 1;
+    }
+    print("已创建项目 %s\n", name);
+    return 0;
 }
 
 // main 不能返回 Result，也不能用 `?`，所以错误都在辅助函数里收口。
@@ -80,7 +97,15 @@ fn main(): i32 {
     let root: string = ".";
     let status: i32 = 0;
 
-    if (command == "install") {
+    if (command == "init") {
+        if (arguments.len() < 3) {
+            print("tapm: init 需要一个项目名\n");
+            print_usage();
+            status = 1;
+        } else {
+            status = run_init(arguments.get(2));
+        }
+    } else if (command == "install") {
         status = run_install(root);
     } else if (command == "list") {
         status = run_list(root);
