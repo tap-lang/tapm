@@ -18,23 +18,23 @@ import std.string_builder as sb;
 import std.vec as vec;
 
 // tap 没有字符串 `+`，拼接要走 StringBuilder。
-fn concat3(a: string, b: string, c: string): string {
+fn concat3(a: String, b: String, c: String): String {
     let builder: StringBuilder = sb.new();
     builder = sb.append(builder, a);
     builder = sb.append(builder, b);
     builder = sb.append(builder, c);
-    let text: string = sb.to_string(builder);
+    let text: String = sb.to_string(builder);
     sb.free(builder);
     return text;
 }
 
 pub struct Toml {
-    keys: Vec<string>,
-    values: Vec<string>,
+    keys: Vec<String>,
+    values: Vec<String>,
 }
 
 // 把下标转成字符串，用于 `[[表]]` 的编号。
-fn format_index(value: i64): string {
+fn format_index(value: i64): String {
     return parse.format_i64(value);
 }
 
@@ -44,7 +44,7 @@ pub fn empty(): Toml {
 }
 
 // 取一行在 text 里的结束位置（不含换行符本身）。
-fn line_end_of(text: string, start: uint): uint {
+fn line_end_of(text: String, start: uint): uint {
     let length: uint = text.len();
     let index: uint = start;
     while (index < length) {
@@ -58,7 +58,7 @@ fn line_end_of(text: string, start: uint): uint {
 }
 
 // 跳过一个换行（\n 或 \r\n）。
-fn next_line_start(text: string, end: uint): uint {
+fn next_line_start(text: String, end: uint): uint {
     let length: uint = text.len();
     let index: uint = end;
     if (index < length && text.byte_at(index) == 13) {
@@ -75,7 +75,7 @@ fn is_space(byte: u8): bool {
 }
 
 // 去掉两端空白。
-fn trim(text: string): string {
+fn trim(text: String): String {
     let length: uint = text.len();
     let start: uint = 0;
     while (start < length && is_space(text.byte_at(start))) {
@@ -89,7 +89,7 @@ fn trim(text: string): string {
 }
 
 // 去掉 `#` 之后的内容。
-fn strip_comment(line: string): string {
+fn strip_comment(line: String): String {
     let length: uint = line.len();
     let index: uint = 0;
     while (index < length) {
@@ -102,16 +102,16 @@ fn strip_comment(line: string): string {
 }
 
 // 把一条记录塞进并行表。
-fn push_entry(keys: Vec<string>, values: Vec<string>, key: string, value: string): Toml {
-    let next_keys: Vec<string> = vec.push(keys, key);
-    let next_values: Vec<string> = vec.push(values, value);
+fn push_entry(keys: Vec<String>, values: Vec<String>, key: String, value: String): Toml {
+    let next_keys: Vec<String> = vec.push(keys, key);
+    let next_values: Vec<String> = vec.push(values, value);
     return Toml { keys: next_keys, values: next_values };
 }
 
 // 解析 `{ k = "v", k2 = "v2" }` 的内容部分，返回两串（键、值）。
 // tap 不能一次返回两个值，所以用「键在前、值在后」拼成一个 Vec。
-fn parse_inline_table(body: string): Vec<string> {
-    let parts: Vec<string> = vec.new();
+fn parse_inline_table(body: String): Vec<String> {
+    let parts: Vec<String> = vec.new();
     let length: uint = body.len();
     let index: uint = 0;
     let start: uint = 0;
@@ -120,7 +120,7 @@ fn parse_inline_table(body: string): Vec<string> {
         let at_end: bool = index == length;
         let is_comma: bool = !at_end && body.byte_at(index) == 44; // ','
         if (at_end || is_comma) {
-            let piece: string = trim(body.slice(start, index));
+            let piece: String = trim(body.slice(start, index));
             if (piece.len() > 0) {
                 let equals: uint = 0;
                 let found: bool = false;
@@ -133,8 +133,8 @@ fn parse_inline_table(body: string): Vec<string> {
                     scan = scan + 1;
                 }
                 if (found) {
-                    let key: string = trim(piece.slice(0, equals));
-                    let value: string = trim(piece.slice(equals + 1, piece.len()));
+                    let key: String = trim(piece.slice(0, equals));
+                    let value: String = trim(piece.slice(equals + 1, piece.len()));
                     // 内联表里的字符串值同样要脱引号。
                     if (value.len() >= 2 && value.byte_at(0) == 34 &&
                         value.byte_at(value.len() - 1) == 34) {
@@ -152,35 +152,35 @@ fn parse_inline_table(body: string): Vec<string> {
 }
 
 // 解析清单文本。格式不对时返回 Err（不静默跳过坏行）。
-pub fn parse(text: string): Result<Toml, string> {
+pub fn parse(text: String): Result<Toml, String> {
     let document: Toml = Toml { keys: vec.new(), values: vec.new() };
-    let section: string = "";
+    let section: String = "";
     let array_index: i64 = 0;
     let length: uint = text.len();
     let index: uint = 0;
 
     while (index < length) {
         let end: uint = line_end_of(text, index);
-        let raw: string = text.slice(index, end);
+        let raw: String = text.slice(index, end);
         index = next_line_start(text, end);
 
-        let line: string = trim(strip_comment(raw));
+        let line: String = trim(strip_comment(raw));
         if (line.len() == 0) {
             continue;
         }
 
         if (line.byte_at(0) == 91) { // '['
             if (line.byte_at(line.len() - 1) != 93) { // ']'
-                return Result<Toml, string>.Err("malformed section header");
+                return Result<Toml, String>.Err("malformed section header");
             }
             // `[[name]]` 是表数组（锁文件用的 Cargo.lock 风格）：按出现顺序编号，
             // 展开成 `name.0.` / `name.1.` 这样的前缀。
             let is_array: bool = line.len() >= 4 && line.byte_at(1) == 91;
             if (is_array) {
                 if (line.byte_at(line.len() - 2) != 93) {
-                    return Result<Toml, string>.Err("malformed array table header");
+                    return Result<Toml, String>.Err("malformed array table header");
                 }
-                let name: string = trim(line.slice(2, line.len() - 2));
+                let name: String = trim(line.slice(2, line.len() - 2));
                 section = concat3(name, ".", format_index(array_index));
                 array_index = array_index + 1;
             } else {
@@ -201,16 +201,16 @@ pub fn parse(text: string): Result<Toml, string> {
             scan = scan + 1;
         }
         if (!found) {
-            return Result<Toml, string>.Err("malformed key/value line");
+            return Result<Toml, String>.Err("malformed key/value line");
         }
 
-        let key: string = trim(line.slice(0, equals));
-        let value: string = trim(line.slice(equals + 1, line.len()));
+        let key: String = trim(line.slice(0, equals));
+        let value: String = trim(line.slice(equals + 1, line.len()));
         if (key.len() == 0 || value.len() == 0) {
-            return Result<Toml, string>.Err("malformed key/value line");
+            return Result<Toml, String>.Err("malformed key/value line");
         }
 
-        let prefix: string = "";
+        let prefix: String = "";
         if (section.len() > 0) {
             prefix = concat3(section, ".", "");
         }
@@ -218,13 +218,13 @@ pub fn parse(text: string): Result<Toml, string> {
         if (value.byte_at(0) == 123) { // '{'
             // 内联表：去掉花括号，展开成 `前缀键.子键`
             if (value.byte_at(value.len() - 1) != 125) { // '}'
-                return Result<Toml, string>.Err("malformed inline table");
+                return Result<Toml, String>.Err("malformed inline table");
             }
-            let inner: string = trim(value.slice(1, value.len() - 1));
-            let parts: Vec<string> = parse_inline_table(inner);
+            let inner: String = trim(value.slice(1, value.len() - 1));
+            let parts: Vec<String> = parse_inline_table(inner);
             let item: uint = 0;
             while (item + 1 < parts.len()) {
-                let full: string = concat3(concat3(prefix, key, "."), parts.get(item), "");
+                let full: String = concat3(concat3(prefix, key, "."), parts.get(item), "");
                 document = push_entry(document.keys, document.values, full, parts.get(item + 1));
                 item = item + 2;
             }
@@ -234,7 +234,7 @@ pub fn parse(text: string): Result<Toml, string> {
 
         if (value.byte_at(0) == 34) { // '"'
             if (value.len() < 2 || value.byte_at(value.len() - 1) != 34) {
-                return Result<Toml, string>.Err("unterminated string value");
+                return Result<Toml, String>.Err("unterminated String value");
             }
             document = push_entry(document.keys, document.values, concat3(prefix, key, ""),
                 value.slice(1, value.len() - 1));
@@ -245,14 +245,14 @@ pub fn parse(text: string): Result<Toml, string> {
         document = push_entry(document.keys, document.values, concat3(prefix, key, ""), value);
     }
 
-    return Result<Toml, string>.Ok(document);
+    return Result<Toml, String>.Ok(document);
 }
 
 // 按键取值；没有这个键返回空串。
-pub fn get(document: Toml, key: string): string {
+pub fn get(document: Toml, key: String): String {
     // 嵌套字段上不能直接调方法，先绑定到局部变量。
-    let keys: Vec<string> = document.keys;
-    let values: Vec<string> = document.values;
+    let keys: Vec<String> = document.keys;
+    let values: Vec<String> = document.values;
     let index: uint = 0;
     while (index < keys.len()) {
         if (keys.get(index) == key) {
@@ -264,8 +264,8 @@ pub fn get(document: Toml, key: string): string {
 }
 
 // 有没有这个键。
-pub fn has(document: Toml, key: string): bool {
-    let keys: Vec<string> = document.keys;
+pub fn has(document: Toml, key: String): bool {
+    let keys: Vec<String> = document.keys;
     let index: uint = 0;
     while (index < keys.len()) {
         if (keys.get(index) == key) {
@@ -277,12 +277,12 @@ pub fn has(document: Toml, key: string): bool {
 }
 
 // 取所有以 prefix 开头的键（含 prefix 本身）。调用方负责 vec.free。
-pub fn keys_with_prefix(document: Toml, prefix: string): Vec<string> {
-    let matched: Vec<string> = vec.new();
-    let keys: Vec<string> = document.keys;
+pub fn keys_with_prefix(document: Toml, prefix: String): Vec<String> {
+    let matched: Vec<String> = vec.new();
+    let keys: Vec<String> = document.keys;
     let index: uint = 0;
     while (index < keys.len()) {
-        let key: string = keys.get(index);
+        let key: String = keys.get(index);
         if (key.len() >= prefix.len() && key.slice(0, prefix.len()) == prefix) {
             matched = vec.push(matched, key);
         }

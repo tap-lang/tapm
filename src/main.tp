@@ -30,10 +30,10 @@ fn print_usage() {
     print("  help          显示这条信息\n");
 }
 
-fn run_init(name: string): i32 {
-    let result: Result<i32, string> = init.init(".", name);
+fn run_init(name: String): i32 {
+    let result: Result<i32, String> = init.init(".", name);
     if (is_err(result)) {
-        let message: string = match (result) {
+        let message: String = match (result) {
             Result.Ok(value) => "",
             Result.Err(reason) => reason,
         };
@@ -45,10 +45,10 @@ fn run_init(name: string): i32 {
 }
 
 // main 不能返回 Result，也不能用 `?`，所以错误都在辅助函数里收口。
-fn run_install(root: string): i32 {
-    let result: Result<i32, string> = install.install(root);
+fn run_install(root: String): i32 {
+    let result: Result<i32, String> = install.install(root);
     if (is_err(result)) {
-        let message: string = match (result) {
+        let message: String = match (result) {
             Result.Ok(value) => "",
             Result.Err(reason) => reason,
         };
@@ -59,10 +59,10 @@ fn run_install(root: string): i32 {
     return 0;
 }
 
-fn run_list(root: string): i32 {
-    let result: Result<Vec<string>, string> = install.list(root);
+fn run_list(root: String): i32 {
+    let result: Result<Vec<String>, String> = install.list(root);
     if (is_err(result)) {
-        let message: string = match (result) {
+        let message: String = match (result) {
             Result.Ok(value) => "",
             Result.Err(reason) => reason,
         };
@@ -71,9 +71,9 @@ fn run_list(root: string): i32 {
     }
 
     // unwrap_or 在「泛型结构体」上推不出类型参数，用 match。
-    let names: Vec<string> = match (result) {
+    let names: Vec<String> = match (result) {
         Result.Ok(inner) => inner,
-        Result.Err(reason) => vec.new<string>(),
+        Result.Err(reason) => vec.new<String>(),
     };
     print("%u 个依赖\n", names.len());
     let index: uint = 0;
@@ -86,15 +86,15 @@ fn run_list(root: string): i32 {
 }
 
 fn main(): i32 {
-    let arguments: Vec<string> = env.args();
+    let arguments: Vec<String> = env.args();
     if (arguments.len() < 2) {
         print_usage();
         vec.free(arguments);
         return 1;
     }
 
-    let command: string = arguments.get(1);
-    let root: string = ".";
+    let command: String = arguments.get(1);
+    let root: String = ".";
     let status: i32 = 0;
 
     if (command == "init") {

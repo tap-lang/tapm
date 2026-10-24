@@ -16,49 +16,49 @@ import std.string_builder as sb;
 import package;
 
 // 模板里的项目版本号，和 hello 保持一致。
-const TEMPLATE_VERSION: string = "0.1.0";
+const TEMPLATE_VERSION: String = "0.1.0";
 
 // 拼两段。tap 没有字符串 `+`，集中在这里做。
-fn concat(left: string, right: string): string {
+fn concat(left: String, right: String): String {
     let builder: StringBuilder = sb.new();
     builder = sb.append(builder, left);
     builder = sb.append(builder, right);
-    let text: string = sb.to_string(builder);
+    let text: String = sb.to_string(builder);
     sb.free(builder);
     return text;
 }
 
 // package.toml 的内容，只有名字是变量。
-fn package_toml(name: string): string {
+fn package_toml(name: String): String {
     let builder: StringBuilder = sb.new();
     builder = sb.append(builder, "[package]\nname = \"");
     builder = sb.append(builder, name);
     builder = sb.append(builder, "\"\nversion = \"");
     builder = sb.append(builder, TEMPLATE_VERSION);
     builder = sb.append(builder, "\"\nentry = \"src/main.tp\"\n");
-    let text: string = sb.to_string(builder);
+    let text: String = sb.to_string(builder);
     sb.free(builder);
     return text;
 }
 
 // .gitignore 的内容：构建产物和依赖都不进版本控制。
-fn gitignore(): string {
+fn gitignore(): String {
     return "# 构建产物和依赖不进版本控制\nbuild/\npackages/\n";
 }
 
 // README.md 的内容。
-fn readme(name: string): string {
+fn readme(name: String): String {
     return concat("# ", concat(name, "\n"));
 }
 
 // src/main.tp 的内容，与 hello 包逐字一致。
-fn main_tp(): string {
+fn main_tp(): String {
     return "fn main(): i32 {\n    print(\"Hello tap!\\n\");\n    return 0;\n}\n";
 }
 
 // 项目名里不能出现路径分隔符或引号：前者会把文件写到目标目录之外，
 // 后者会破坏生成的 package.toml。`.` 和 `..` 也不是合法的项目名。
-fn name_is_valid(name: string): bool {
+fn name_is_valid(name: String): bool {
     if (name.len() == 0) {
         return false;
     }
@@ -78,48 +78,48 @@ fn name_is_valid(name: string): bool {
 }
 
 // 把四个文件写进 root。任何一个失败就返回 Err，此时目录里可能留下半成品。
-fn write_files(root: string, name: string): Result<i32, string> {
-    let manifest: string = package.join_path(root, "package.toml");
+fn write_files(root: String, name: String): Result<i32, String> {
+    let manifest: String = package.join_path(root, "package.toml");
     if (fs.write_text(manifest, package_toml(name)) < 0) {
-        return Result<i32, string>.Err("cannot write package.toml");
+        return Result<i32, String>.Err("cannot write package.toml");
     }
 
-    let ignores: string = package.join_path(root, ".gitignore");
+    let ignores: String = package.join_path(root, ".gitignore");
     if (fs.write_text(ignores, gitignore()) < 0) {
-        return Result<i32, string>.Err("cannot write .gitignore");
+        return Result<i32, String>.Err("cannot write .gitignore");
     }
 
-    let readme_path: string = package.join_path(root, "README.md");
+    let readme_path: String = package.join_path(root, "README.md");
     if (fs.write_text(readme_path, readme(name)) < 0) {
-        return Result<i32, string>.Err("cannot write README.md");
+        return Result<i32, String>.Err("cannot write README.md");
     }
 
-    let source: string = package.join_path(root, "src");
+    let source: String = package.join_path(root, "src");
     if (fs.make_dir(source) != 0) {
-        return Result<i32, string>.Err("cannot create the src directory");
+        return Result<i32, String>.Err("cannot create the src directory");
     }
-    let main_path: string = package.join_path(source, "main.tp");
+    let main_path: String = package.join_path(source, "main.tp");
     if (fs.write_text(main_path, main_tp()) < 0) {
-        return Result<i32, string>.Err("cannot write src/main.tp");
+        return Result<i32, String>.Err("cannot write src/main.tp");
     }
 
-    return Result<i32, string>.Ok(0);
+    return Result<i32, String>.Ok(0);
 }
 
 // 在 parent 目录下建一个名为 name 的新项目。
-pub fn init(parent: string, name: string): Result<i32, string> {
+pub fn init(parent: String, name: String): Result<i32, String> {
     if (!name_is_valid(name)) {
-        return Result<i32, string>.Err(
+        return Result<i32, String>.Err(
             "invalid project name (no path separators or quotes)");
     }
 
-    let root: string = package.join_path(parent, name);
+    let root: String = package.join_path(parent, name);
     // 已经存在就停手，绝不覆盖——宁可报错也不要冲掉别人的东西。
     if (fs.is_dir(root)) {
-        return Result<i32, string>.Err("directory already exists");
+        return Result<i32, String>.Err("directory already exists");
     }
     if (fs.make_dir(root) != 0) {
-        return Result<i32, string>.Err("cannot create the project directory");
+        return Result<i32, String>.Err("cannot create the project directory");
     }
 
     return write_files(root, name);
