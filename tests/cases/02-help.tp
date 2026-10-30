@@ -1,0 +1,14 @@
+// 显式 help：用法 + 退出码 0。
+import lib;
+import std.vec as vec;
+import std.env as env;
+
+fn main(): i32 {
+    let c: Case = lib.case();
+    let args: Vec<String> = vec.new<String>();
+    args = args.push("help");
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 0);
+    c = lib.expect_contains(c, c.stdout, "用法: tapm <命令>");
+    return lib.finish(c);
+}

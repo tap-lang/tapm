@@ -1,0 +1,21 @@
+// list 在有 manifest 但还没有 packages/ 时：明确告诉用户先 install，退出码 1。
+//
+// 要先放一个 package.toml —— tapm 从当前目录向上找它来定包根。
+import lib;
+import std.fs as fs;
+import std.vec as vec;
+import std.env as env;
+
+fn main(): i32 {
+    let c: Case = lib.case();
+    let written: i64 = fs.write_text("package.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nentry = \"src/main.tp\"\n");
+
+    let args: Vec<String> = vec.new<String>();
+    args = args.push("list");
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 1);
+    c = lib.expect_contains(c, lib.combined(c), "packages/ does not exist");
+    c = lib.expect_contains(c, lib.combined(c), "tapm install");
+    return lib.finish(c);
+}

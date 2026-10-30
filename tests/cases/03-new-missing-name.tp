@@ -1,0 +1,16 @@
+// new 缺项目名：提示 + 用法，退出码 1，且不能建出任何东西。
+import lib;
+import std.vec as vec;
+import std.env as env;
+
+fn main(): i32 {
+    let c: Case = lib.case();
+    let args: Vec<String> = vec.new<String>();
+    args = args.push("new");
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 1);
+    c = lib.expect_contains(c, c.stdout, "new 需要一个项目名");
+    c = lib.expect_contains(c, c.stdout, "用法: tapm <命令>");
+    c = lib.expect_no_file(c, "demo");
+    return lib.finish(c);
+}

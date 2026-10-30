@@ -1,0 +1,141 @@
+// `tapm test`：跑 tests/cases/ 下的用例。
+//
+// 用例本身也是 **tap 文件**（每个有自己的 main，返回 0 表示通过），
+// 断言库在 tests/lib.tp。这里只负责编排：发现、隔离、执行、统计、报告。
+//
+// 每个用例用 `tap run` 起一个独立进程跑 —— 既隔离了 new 生成的目录，
+// 也保证用例里的相对路径不会碰到仓库里的东西。子进程输出用 process 库直接拿。
+
+import std.fs as fs;
+import std.sys as sys;
+import std.env as env;
+import std.vec as vec;
+import process.command as proc;
+
+// 从环境变量取值，空则用默认。
+fn setting(name: String, fallback: String): String {
+    let value: String = env.var(name);
+    if (value.len() == 0) {
+        return fallback;
+    }
+    return value;
+}
+
+// 收集 tests/cases 下的 .tp 文件名。读不到目录就返回空表，由调用方报错。
+fn collect_cases(base: String): Vec<String> {
+    let listing: Result<Vec<String>, String> = fs.read_dir(base + "/tests/cases");
+    if (!listing.is_ok()) {
+        return vec.new<String>();
+    }
+    let entries: Vec<String> = match (listing) {
+        Result.Ok(value) => value,
+        Result.Err(reason) => vec.new<String>(),
+    };
+
+    let cases: Vec<String> = vec.new<String>();
+    for (let i: i64 = 0; i < entries.len() as i64; i = i + 1) {
+        let entry: String = entries.get(i as uint);
+        if (entry.ends_with(".tp")) {
+            cases = cases.push(entry);
+        }
+    }
+    return cases;
+}
+
+// 跑单个用例，返回它的输出和退出码。
+fn run_case(file: String, tap_path: String, tapm_path: String,
+            module_root: String, work_dir: String, std_path: String): Result<Output, String> {
+    let name: String = file.slice(0, file.len() - 3);
+    let work: String = work_dir + "/" + name;
+    sys.system("mkdir -p " + work);
+
+    let command: Command = proc.new(tap_path);
+    command = proc.arg(command, "run");
+    command = proc.arg(command, module_root + "/cases/" + file);
+    command = proc.current_dir(command, work);
+    // 用例里 `import lib;` 要靠 TAP_MODULE_PATH 找到 tests/lib.tp；
+    // 用例要跑 tapm，靠 TAPM 拿路径。
+    command = proc.env(command, "TAPM", tapm_path);
+    command = proc.env(command, "TAP_MODULE_PATH", module_root);
+    if (std_path.len() > 0) {
+        command = proc.env(command, "TAP_STD_PATH", std_path);
+    }
+    return proc.output(command);
+}
+
+pub fn run(root: String): i32 {
+    // 用例在 <root>/tests/.work/<name>/ 里跑，所以路径必须是绝对的。
+    let tapm_path: String = setting("TAPM", root + "/build/tapm");
+    if (!tapm_path.starts_with("/")) {
+        tapm_path = root + "/" + tapm_path;
+    }
+    let tap_path: String = setting("TAP", "tap");
+    let std_path: String = env.var("TAP_STD_PATH");
+    let module_root: String = root + "/tests";
+    // 工作目录放在**包外**：用例要测「空目录下的行为」（比如 list 找不到 packages/），
+    // 如果放在 <root>/tests/.work/ 里，tapm 的向上查找会找到 tapm 自己的包根，
+    // 用例就测不出东西了。
+    let work_dir: String = "/tmp/tapm-test";
+
+    let cases: Vec<String> = collect_cases(root);
+    if (cases.len() == 0) {
+        // 包根是靠向上找 package.toml 定的，所以走到这里说明包根有 manifest
+        // 但没有 tests/cases —— 把找的是哪个目录打出来，方便排查。
+        print("tapm test: %s/tests/cases 里没有用例\n", root);
+        return 2;
+    }
+
+    sys.system("rm -rf " + work_dir + " && mkdir -p " + work_dir);
+
+    let passed: i32 = 0;
+    let failed: i32 = 0;
+    let failed_names: Vec<String> = vec.new<String>();
+    let filter: String = env.var("TEST_FILTER");
+
+    for (let i: i64 = 0; i < cases.len() as i64; i = i + 1) {
+        let file: String = cases.get(i as uint);
+        let name: String = file.slice(0, file.len() - 3);
+
+        if (filter.len() > 0 && !name.contains(filter)) {
+            continue;
+        }
+
+        let result: Result<Output, String> =
+            run_case(file, tap_path, tapm_path, module_root, work_dir, std_path);
+        match (result) {
+            Result.Ok(value) => {
+                if (value.status == 0) {
+                    print("PASS %s\n", name);
+                    passed = passed + 1;
+                } else {
+                    print("FAIL %s\n", name);
+                    // 用例的断言信息走 stdout（lib.tp 用 print），
+                    // 编译错误走 stderr，两路都摊开。
+                    print("%s", value.stdout);
+                    print("%s", value.stderr);
+                    failed = failed + 1;
+                    failed_names = failed_names.push(name);
+                }
+            }
+            Result.Err(reason) => {
+                print("FAIL %s\n", name);
+                print("  启动失败: %s\n", reason);
+                failed = failed + 1;
+                failed_names = failed_names.push(name);
+            }
+        }
+    }
+
+    sys.system("rm -rf " + work_dir);
+
+    print("\n%d passed, %d failed\n", passed, failed);
+    if (failed > 0) {
+        print("失败的用例:");
+        for (let i: i64 = 0; i < failed_names.len() as i64; i = i + 1) {
+            print(" %s", failed_names.get(i as uint));
+        }
+        print("\n");
+        return 1;
+    }
+    return 0;
+}

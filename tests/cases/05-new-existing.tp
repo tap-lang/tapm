@@ -1,0 +1,29 @@
+// 同名目录已存在：必须拒绝，且不能覆盖已有内容。
+//
+// 覆盖检查是脚手架最重要的一条 —— 用户误敲一次命令就丢掉整个项目，
+// 那比报错难受得多。用哨兵文件确认没被重写。
+import lib;
+import std.fs as fs;
+import std.vec as vec;
+import std.env as env;
+
+fn main(): i32 {
+    let c: Case = lib.case();
+    let args: Vec<String> = vec.new<String>();
+    args = args.push("new");
+    args = args.push("demo");
+
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 0);
+    c = lib.expect_file(c, "demo/package.toml");
+
+    let written: i64 = fs.write_text("demo/keep-me.txt", "sentinel\n");
+    c = lib.expect_contains(c, lib.read(c, "demo/keep-me.txt"), "sentinel");
+
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 1);
+    c = lib.expect_contains(c, lib.combined(c), "already exists");
+
+    c = lib.expect_contains(c, lib.read(c, "demo/keep-me.txt"), "sentinel");
+    return lib.finish(c);
+}

@@ -1,0 +1,16 @@
+// 不带参数：打印用法，退出码 1（没执行任何命令算失败）。
+import lib;
+import std.vec as vec;
+import std.env as env;
+
+fn main(): i32 {
+    let c: Case = lib.case();
+    let args: Vec<String> = vec.new<String>();
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 1);
+    c = lib.expect_contains(c, c.stdout, "用法: tapm <命令>");
+    c = lib.expect_contains(c, c.stdout, "new <名字>");
+    c = lib.expect_contains(c, c.stdout, "install");
+    c = lib.expect_contains(c, c.stdout, "list");
+    return lib.finish(c);
+}

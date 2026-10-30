@@ -1,0 +1,71 @@
+// 包根查找：从当前目录向上找含 package.toml 的那一层。
+//
+// 和 cargo 一样：`cd src && tapm test` 也能找到包根，不用非得在最外层。
+
+import std.fs as fs;
+import std.string_builder as sb;
+
+extern fn getcwd(buffer: *u8, size: u64): *u8;
+
+// 真实的当前工作目录。
+//
+// **不能用 PWD**：那是 shell 维护的环境变量，chdir() 之后不会更新。tapm test 用
+// process 的 current_dir 把用例进程切到临时目录，子进程里的 PWD 却还是父进程的
+// 路径 —— 用它找包根会找到错的地方（实测：用例的 package.toml 写进了临时目录，
+// 但 tapm list 却按 PWD 去读了 tapm 自己的包根，列出了一堆不相干的依赖）。
+pub fn current_dir(): String {
+    let buffer: [u8; 4096] = [0; 4096];
+    let result: *u8 = getcwd(&buffer[0], 4096);
+    if (result == null) {
+        return "";
+    }
+    let builder: StringBuilder = sb.new();
+    let index: uint = 0;
+    while (index < 4096) {
+        let ch: u8 = buffer[index];
+        if (ch == 0) {
+            break;
+        }
+        builder = sb.append_byte(builder, ch);
+        index = index + 1;
+    }
+    return sb.to_string(builder);
+}
+
+// 从当前目录向上找含 package.toml 的目录。找不到返回空串。
+pub fn find(): String {
+    let current: String = current_dir();
+    if (current.len() == 0) {
+        return "";
+    }
+    while (true) {
+        if (fs.exists(current + "/package.toml")) {
+            return current;
+        }
+        if (current == "/") {
+            return "";
+        }
+        let parent: String = parent_of(current);
+        if (parent == current || parent.len() == 0) {
+            return "";
+        }
+        current = parent;
+    }
+    // 编译器不做流分析，`while (true)` 后面还是要有个 return 才肯过。
+    return "";
+}
+
+// 去掉路径最后一段。`/a/b` → `/a`，`/a` → `/`，`a` → `""`。
+fn parent_of(path: String): String {
+    let index: uint = path.len();
+    while (index > 0) {
+        if (path.byte_at(index - 1) == 47) {   // '/'
+            if (index == 1) {
+                return "/";
+            }
+            return path.slice(0, index - 1);
+        }
+        index = index - 1;
+    }
+    return "";
+}

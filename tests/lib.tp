@@ -1,0 +1,126 @@
+// tapm 测试的断言库。用例是 tap 文件，`import lib;` 后用这里的函数。
+//
+// 设计上刻意做成「链式返回 Case」：每个断言把失败数累加到 c.failures，
+// 用例最后 `return lib.finish(c)` 决定退出码。这样一条用例里的多个断言都会跑到，
+// 不会第一个失败就停 —— 和 shell 版的行为一致。
+
+import std.fs as fs;
+import std.vec as vec;
+import process.command as proc;
+
+pub struct Case {
+    failures: i32,
+    status: i32,
+    stdout: String,
+    stderr: String,
+}
+
+pub fn case(): Case {
+    let empty: String = "";
+    return Case {
+        failures: 0,
+        status: 0,
+        stdout: empty,
+        stderr: empty,
+    };
+}
+
+// 跑一个命令并捕获输出。program 按 PATH 查找。
+pub fn run(c: Case, program: String, args: Vec<String>, dir: String): Case {
+    let command: Command = proc.new(program);
+    for (let i: i64 = 0; i < args.len() as i64; i = i + 1) {
+        command = proc.arg(command, args.get(i as uint));
+    }
+    command = proc.current_dir(command, dir);
+
+    let result: Result<Output, String> = proc.output(command);
+    match (result) {
+        Result.Ok(value) => {
+            c.status = value.status;
+            c.stdout = value.stdout;
+            c.stderr = value.stderr;
+        }
+        Result.Err(reason) => {
+            c.status = -1;
+            c.failures = c.failures + 1;
+            print("    FAIL: 启动失败: %s\n", reason);
+        }
+    }
+    return c;
+}
+
+// 命令的全部输出（stdout + stderr），断言失败时用来看现场。
+pub fn combined(c: Case): String {
+    return c.stdout + c.stderr;
+}
+
+pub fn expect_exit(c: Case, expected: i32): Case {
+    if (c.status != expected) {
+        print("    FAIL: 退出码应为 %d，实际 %d\n", expected, c.status);
+        print("    输出:\n%s\n", combined(c));
+        c.failures = c.failures + 1;
+    }
+    return c;
+}
+
+pub fn expect_contains(c: Case, text: String, needle: String): Case {
+    if (!text.contains(needle)) {
+        print("    FAIL: 输出里找不到「%s」\n", needle);
+        print("    输出:\n%s\n", text);
+        c.failures = c.failures + 1;
+    }
+    return c;
+}
+
+pub fn expect_not_contains(c: Case, text: String, needle: String): Case {
+    if (text.contains(needle)) {
+        print("    FAIL: 输出里不该出现「%s」\n", needle);
+        c.failures = c.failures + 1;
+    }
+    return c;
+}
+
+pub fn expect_file(c: Case, path: String): Case {
+    if (!fs.exists(path)) {
+        print("    FAIL: 缺少文件：%s\n", path);
+        c.failures = c.failures + 1;
+    }
+    return c;
+}
+
+pub fn expect_no_file(c: Case, path: String): Case {
+    if (fs.exists(path)) {
+        print("    FAIL: 不该存在：%s\n", path);
+        c.failures = c.failures + 1;
+    }
+    return c;
+}
+
+pub fn expect_dir(c: Case, path: String): Case {
+    if (!fs.is_dir(path)) {
+        print("    FAIL: 缺少目录：%s\n", path);
+        c.failures = c.failures + 1;
+    }
+    return c;
+}
+
+// 读文件内容，读不到就记一次失败并返回空串。
+pub fn read(c: Case, path: String): String {
+    let result: Result<String, String> = fs.read_text(path);
+    if (!result.is_ok()) {
+        print("    FAIL: 读不到 %s\n", path);
+        c.failures = c.failures + 1;
+        return "";
+    }
+    return match (result) {
+        Result.Ok(value) => value,
+        Result.Err(reason) => "",
+    };
+}
+
+pub fn finish(c: Case): i32 {
+    if (c.failures > 0) {
+        return 1;
+    }
+    return 0;
+}
