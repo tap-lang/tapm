@@ -7,15 +7,15 @@ tap 包管理的规范。**状态：阶段 1 已实现，端到端可用。**
 | 命令 | 职责 | 用什么写 |
 |---|---|---|
 | `tap` | 编译器 + **构建**（`tap build` / `tap run`） | C |
-| `tapm` | **依赖管理 + 脚手架**（`init` / 填充 `packages/` / 维护锁文件） | tap |
+| `tapm` | **依赖管理 + 脚手架**（`new` / 填充 `packages/` / 维护锁文件） | tap |
 
 这是 dune / opam 那套分工，不是 cargo 那套。**关键好处：`tap build` 完全独立于 `tapm`**——
 `tapm` 本身有 bug 也不影响用户构建自己的项目。代价是两者要共同遵守一套目录约定（下面）。
 
 **`tapm` 不调用 `tap`**，只操作文件系统，所以两者没有运行时耦合。
 
-**唯一一处反向依赖：`tap init` 转发给 `tapm init`**（见「命令」一节）。这是个软依赖——
-只为可发现性（新人自然会敲 `tap init`），tapm 不在时给出明确提示，**构建路径完全不受影响**。
+**唯一一处反向依赖：`tap new` 转发给 `tapm new`**（见「命令」一节）。这是个软依赖——
+只为可发现性（新人自然会敲 `tap new`），tapm 不在时给出明确提示，**构建路径完全不受影响**。
 
 ## 目录布局
 
@@ -74,7 +74,7 @@ foo = "1.0.0"                  # 精确版本，来自注册表（阶段 3）
 - **`packages/<name>/` 的目录名必须等于依赖清单里的 `name`**。这是和编译器之间的契约：
   编译器只按目录名解析，不读清单。由 `tapm` 保证。
 - 编译器读 `entry` 的方式（极简扫描的边界）见 tap 仓库的
-  [`docs/module.md`](https://github.com/) 的「包模式」一节。
+  [`docs/module.md`](https://github.com/tap-lang/tap/blob/main/docs/module.md) 的「包模式」一节。
 
 ## 锁文件：package.lock.toml
 
@@ -112,13 +112,13 @@ checksum = "..."
 ### `tapm`
 
 ```text
-tapm init <名字>        # 按模板生成一个新项目的骨架（当前目录下建 <名字>/）
+tapm new <名字>        # 按模板生成一个新项目的骨架（当前目录下建 <名字>/）
 tapm install            # 读 package.toml，展开依赖，接进 packages/，写锁文件
 tapm list               # 列出 packages/ 里已经接上的依赖
 tapm help
 ```
 
-**`init` 的模板**取自 tap 仓库的 `hello` 包，内容**内嵌在 `src/init.tp` 里**——
+**`new` 的模板**取自 tap 仓库的 `hello` 包，内容**内嵌在 `src/new.tp` 里**——
 tapm 要编译成二进制装到 PATH，运行时不能依赖仓库布局，所以模板必须跟着二进制走。
 改了 `hello` 记得同步那个文件。
 
@@ -134,13 +134,13 @@ tapm 要编译成二进制装到 PATH，运行时不能依赖仓库布局，所�
 ### `tap`（构建侧，详见 tap 仓库）
 
 ```text
-tap init demo           # 转发给 tapm init demo（模板只有一份，在 tapm 里）
+tap new demo           # 转发给 tapm new demo（模板只有一份，在 tapm 里）
 tap build               # 包模式：读 entry，编译到 ./build/<name>
 tap run                 # 包模式：编译完接着运行
 tap run main.tp         # 文件模式：现有行为，不变
 ```
 
-**`tap init` 只转发**：参数原样透传、退出码原样返回。tapm 的查找顺序是「编译器自己旁边
+**`tap new` 只转发**：参数原样透传、退出码原样返回。tapm 的查找顺序是「编译器自己旁边
 （安装布局下两者都在 `<prefix>/bin`）→ `PATH`」，都找不到时报错并给出可照做的提示。
 
 **无参数才走包模式**，给了文件就是文件级，用户不会困惑。
@@ -203,8 +203,8 @@ tap run main.tp         # 文件模式：现有行为，不变
 | `tapm` 源码位置 | **独立仓库**，和 tap 同级（`tap-lang/tapm/`） | 放在 tap 仓库里——但它是独立演进的工具，和编译器没有运行时耦合 |
 | 新项目的模板来源 | tap 仓库的 `hello` 包，**内容内嵌进二进制** | 运行时去读 `hello` 目录——tapm 装到 PATH 后不知道仓库在哪 |
 | 目标目录已存在 | **报错，绝不覆盖** | 直接写进去——可能冲掉别人的文件 |
-| `init` 要不要 `git init` | **不要** | 调用外部命令，破坏「tapm 只操作文件系统」的定位 |
-| `tap init` 怎么实现 | **转发给 `tapm init`**（软依赖） | 在 C 里重写一遍模板——两份模板必然漂移；只提示用户去跑 `tapm`——没有意义 |
+| `new` 要不要 `git init` | **不要** | 调用外部命令，破坏「tapm 只操作文件系统」的定位 |
+| `tap new` 怎么实现 | **转发给 `tapm new`**（软依赖） | 在 C 里重写一遍模板——两份模板必然漂移；只提示用户去跑 `tapm`——没有意义 |
 
 **另外否掉的一个方案**：把编译器改名 `tapc`、包管理器叫 `tap`（对应 go / cargo 那套）。
 技术上可行，但迁移成本约 35 处引用 / 13 个文件，而收益只是「主入口拿短名字」——

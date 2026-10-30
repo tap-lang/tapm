@@ -1,4 +1,4 @@
-// `tapm init`：按模板生成一个新项目的骨架。
+// `tapm new`：按模板生成一个新项目的骨架。
 //
 // 模板内容取自 tap 仓库同级的 `hello` 包（`tap-lang/hello`），**内嵌在这里**。
 // 之所以内嵌而不是运行时去读那个目录：tapm 会被编译成二进制装到 PATH 里，
@@ -11,7 +11,7 @@
 //     ├─ README.md
 //     └─ src/
 //         └─ main.tp
-import std.fs as fs;
+import std.fs;
 import std.string_builder as sb;
 import package;
 
@@ -107,7 +107,7 @@ fn write_files(root: String, name: String): Result<i32, String> {
 }
 
 // 在 parent 目录下建一个名为 name 的新项目。
-pub fn init(parent: String, name: String): Result<i32, String> {
+pub fn new(parent: String, name: String): Result<i32, String> {
     if (!name_is_valid(name)) {
         return Result<i32, String>.Err(
             "invalid project name (no path separators or quotes)");

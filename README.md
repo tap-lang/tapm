@@ -4,7 +4,7 @@
 
 ## 它做什么
 
-- `tapm init <名字>` —— 按模板生成一个新项目的骨架
+- `tapm new <名字>` —— 按模板生成一个新项目的骨架
 - `tapm install` —— 读项目根目录的 `package.toml`，把依赖接进 `packages/`，并写一份
   `package.lock.toml`
 
@@ -37,18 +37,18 @@ bar = { path = "../bar" }
 需要 tap 编译器在 `PATH` 里（或用完整路径）。
 
 ```bash
-tap run <tapm 仓库路径>/src/main.tp -- init demo    # 新建项目 demo/
+tap run <tapm 仓库路径>/src/main.tp -- new demo    # 新建项目 demo/
 cd demo
 tap run <tapm 仓库路径>/src/main.tp -- install      # 装依赖（在项目根目录）
 tap run <tapm 仓库路径>/src/main.tp -- list         # 列出已接上的依赖
 tap run <tapm 仓库路径>/src/main.tp -- help
 ```
 
-发布后会编译成 `tapm` 二进制，装到 `PATH` 里直接 `tapm init demo` 即可。
+发布后会编译成 `tapm` 二进制，装到 `PATH` 里直接 `tapm new demo` 即可。
 
-## tapm init
+## tapm new
 
-`tapm init demo` 在当前目录下建 `demo/`，内容取自 tap 仓库的 `hello` 包：
+`tapm new demo` 在当前目录下建 `demo/`，内容取自 tap 仓库的 `hello` 包：
 
 ```text
 demo/
@@ -65,7 +65,7 @@ cd demo
 tap build && ./build/demo     # 或 tap run
 ```
 
-**`tap init demo` 是它的转发**——参数和退出码原样透传，两者完全等价。编译器按「自己旁边 →
+**`tap new demo` 是它的转发**——参数和退出码原样透传，两者完全等价。编译器按「自己旁边 →
 `PATH`」找 tapm，找不到就明确报错。这条只是为了让新人不用先知道有 tapm 这回事；
 **构建路径不依赖 tapm**。
 
@@ -84,7 +84,7 @@ tap build && ./build/demo     # 或 tap run
 ```text
 tapm/
 ├─ package.toml          name = "tapm", entry = "src/main.tp"
-├─ src/                  main.tp / toml.tp / package.tp / install.tp / init.tp
+├─ src/                  main.tp / toml.tp / package.tp / install.tp / new.tp
 └─ packages/             依赖（tapm 没有依赖，所以为空，不进版本控制）
 ```
 
@@ -106,7 +106,7 @@ tap build                # 产物在 build/tapm
 | `src/toml.tp` | TOML 子集解析（扁平点分键表示，绕开 tap 没有 map） |
 | `src/package.tp` | 清单加载、路径拼接 |
 | `src/install.tp` | 依赖展开（平铺去重）+ 符号链接 + 锁文件 |
-| `src/init.tp` | `tapm init`：内嵌的 hello 模板 + 脚手架 |
+| `src/new.tp` | `tapm new`：内嵌的 hello 模板 + 脚手架 |
 
 ## 设计要点
 
@@ -116,6 +116,52 @@ tap build                # 产物在 build/tapm
   编译器只按目录名解析，不读清单。
 - **符号链接优先**（本地改动实时生效）。Windows 上创建符号链接需要管理员权限或
   开启开发者模式。
+
+## 测试
+
+```sh
+tapm test                        # 全部
+TEST_FILTER=new tapm test        # 只跑名字含 new 的用例
+TAPM=/path/to/tapm tapm test     # 指定要测的二进制
+```
+
+**在包根或任意子目录都能跑**：`install` / `list` / `test` 会从当前目录向上找
+`package.toml` 来确定包根（和 cargo 一样），所以 `cd src && tapm test` 也行。
+
+**在包根或任意子目录都能跑**：`install` / `list` / `test` 会从当前目录向上找
+`package.toml` 来确定包根（和 cargo 一样），所以 `cd src && tapm test` 也行。
+
+**运行器和用例都是 tap 写的**：
+
+- `src/test.tp` —— 扫描 `tests/cases/*.tp`、给每个用例建独立临时目录、
+  用 `tap run` 起进程执行、统计、报告；
+- `tests/lib.tp` —— 断言库：`Case` + `expect_*`，链式返回、失败累加（一条用例里的
+  多个断言都会跑到，不会第一个失败就停）；
+- `tests/cases/*.tp` —— 每个用例一个 tap 程序，`main` 返回 0 表示通过。
+
+```tap
+fn main(): i32 {
+    let c: Case = lib.case();
+    let args: Vec<String> = vec.new<String>();
+    args = args.push("new");
+    args = args.push("demo");
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 0);
+    c = lib.expect_file(c, "demo/package.toml");
+    return lib.finish(c);
+}
+```
+
+**为什么每个用例起独立进程**：用例会 `new` 出目录、改文件系统，进程隔离是最省事的
+隔离方式；`import lib` 靠 `TAP_MODULE_PATH` 指向 `tests/`，跑在独立进程里路径不会串。
+
+**为什么不用 tap 自己的 `run-tests.sh`**：那套只比对 stdout/stderr/exit（用例内嵌期望），
+而 tapm 的命令会改文件系统——覆盖检查、生成物完整性、manifest 内容都得看文件。
+
+**子进程输出怎么拿**：用 [`process`](../process) 库（`fork` + `poll`），stdout/stderr
+直接拿到，不再重定向到 `out.txt`。`process` 是 tapm 的第一个外部依赖 ——
+`package.toml` 里声明 `process = { path = "../process" }`，`tapm install` 建符号链接。
+临时目录在 `tests/.work/`，跑完即删。
 
 ## 文档
 

@@ -5,9 +5,9 @@
 //     ├─ package.toml
 //     ├─ src/
 //     └─ packages/        <- tapm install 把依赖接到这里
-import std.fs as fs;
+import std.fs;
 import std.string_builder as sb;
-import std.vec as vec;
+import std.vec;
 import toml;
 
 // 拼接路径。tap 没有字符串 `+`，这里集中做。

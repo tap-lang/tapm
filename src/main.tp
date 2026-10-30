@@ -1,6 +1,6 @@
 // tapm：tap 的依赖管理。
 //
-//   tapm init <名字>   按模板生成一个新项目的骨架
+//   tapm new <名字>    按模板生成一个新项目的骨架
 //   tapm install       读 package.toml，把依赖接进 packages/
 //   tapm list          列出 packages/ 里已经接上的依赖
 //   tapm help          显示用法
@@ -17,21 +17,31 @@
 import std.env as env;
 import std.fs as fs;
 import std.vec as vec;
-import init;
+import new;
 import install;
+import test;
+import root;
 import package;
 
 fn print_usage() {
     print("用法: tapm <命令>\n");
+    print("  install / list / test 从当前目录向上找 package.toml 来确定包根，\n");
+    print("  所以在包根或它的任意子目录下都能跑。\n");
     print("命令:\n");
-    print("  init <名字>   按模板生成一个新项目的骨架\n");
-    print("  install       读 package.toml，把依赖接进 packages/\n");
-    print("  list          列出 packages/ 里已经接上的依赖\n");
-    print("  help          显示这条信息\n");
+    print("  new <名字>         按模板生成一个新项目的骨架\n");
+    print("  install            读 package.toml，把依赖接进 packages/\n");
+    print("  list               列出 packages/ 里已经接上的依赖\n");
+    print("  test               跑 tests/cases 下的用例\n");
+    print("  --help,-h          显示这条信息\n");
+    print("  --version,-V       显示版本信息\n");
 }
 
-fn run_init(name: String): i32 {
-    let result: Result<i32, String> = init.init(".", name);
+fn print_version() {
+    print("tapm version 0.1.0\n");
+}
+
+fn run_new(name: String): i32 {
+    let result: Result<i32, String> = new.new(".", name);
     if (is_err(result)) {
         let message: String = match (result) {
             Result.Ok(value) => "",
@@ -94,23 +104,39 @@ fn main(): i32 {
     }
 
     let command: String = arguments.get(1);
-    let root: String = ".";
     let status: i32 = 0;
 
-    if (command == "init") {
+    // install / list / test 都要包根：从当前目录向上找 package.toml。
+    // new 不需要 —— 它在当前目录建新项目。
+    let package_root: String = "";
+    if (command == "install" || command == "list" || command == "test") {
+        package_root = root.find();
+        if (package_root.len() == 0) {
+            print("tapm: 从当前目录向上找不到 package.toml\n");
+            print("  请在 tap 包目录（含 package.toml 的那一层）或其子目录下运行\n");
+            vec.free(arguments);
+            return 2;
+        }
+    }
+
+    if (command == "new") {
         if (arguments.len() < 3) {
-            print("tapm: init 需要一个项目名\n");
+            print("tapm: new 需要一个项目名\n");
             print_usage();
             status = 1;
         } else {
-            status = run_init(arguments.get(2));
+            status = run_new(arguments.get(2));
         }
     } else if (command == "install") {
-        status = run_install(root);
+        status = run_install(package_root);
     } else if (command == "list") {
-        status = run_list(root);
+        status = run_list(package_root);
+    } else if (command == "test") {
+        status = test.run(package_root);
     } else if (command == "help" || command == "--help" || command == "-h") {
         print_usage();
+    } else if (command == "--version" || command == "-V") {
+        print_version();
     } else {
         print("tapm: 未知命令 '%s'\n", command);
         print_usage();

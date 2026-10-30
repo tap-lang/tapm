@@ -3,9 +3,9 @@
 // 阶段 1 只支持 path 依赖：把 `packages/<名字>` 做成指向清单里那个路径的符号链接。
 // 依赖平铺（不嵌套），传递依赖也拉平到同一层——tap 没有 ABI、没有 dyn，
 // 同一个包不需要多版本共存，所以平铺是安全的。
-import std.fs as fs;
+import std.fs;
 import std.string_builder as sb;
-import std.vec as vec;
+import std.vec;
 import package;
 
 // 符号链接的目标。

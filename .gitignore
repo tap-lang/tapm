@@ -1,3 +1,6 @@
 # tapm 自己也是 tap 包，构建产物和依赖不进版本控制
 packages/
 build/
+
+# 测试的临时工作目录
+tests/.work/
