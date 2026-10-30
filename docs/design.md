@@ -66,10 +66,13 @@ entry = "src/main.tp"          # 相对 package.toml 所在目录
 
 [dependencies]
 bar = { path = "../bar" }      # 本地路径依赖
+gitfoo = { git = "https://github.com/example/foo.git", rev = "v1.0.0" }
 foo = "1.0.0"                  # 精确版本，来自注册表（阶段 3）
 ```
 
 - `entry` 只在 `tap` 编译**当前包**时使用。
+- Git 依赖的 `rev` 可省略；支持 commit、tag 和 branch。省略时使用远端默认分支。
+- 相对 Git URL 以声明依赖的包目录为基准；安装 Git 依赖要求 `git` 在 `PATH` 中。
 - 依赖包自己的 `package.toml` 里也可以写 `entry`，但作为依赖被导入时用不上。
 - **`packages/<name>/` 的目录名必须等于依赖清单里的 `name`**。这是和编译器之间的契约：
   编译器只按目录名解析，不读清单。由 `tapm` 保证。
@@ -96,9 +99,8 @@ source = "path+../bar"
 
 [[package]]
 name = "foo"
-version = "1.0.0"
-source = "registry+https://example.com/index"
-checksum = "..."
+version = ""
+source = "git+https://github.com/example/foo.git#0123456789abcdef"
 ```
 
 要点：
@@ -106,6 +108,7 @@ checksum = "..."
 - **必须提交进版本控制。** `packages/` 被 gitignore 了，锁文件是唯一的可复现来源。
 - `tapm install` **按锁文件重建 `packages/`，不重新求解**；要重新求解走 `tapm update`。
 - path 依赖记 `source = "path+../bar"`，不记 checksum。
+- Git 依赖记 `source = "git+URL#commit"`，commit 是实际检出的完整提交号。
 
 ## 命令
 
@@ -161,7 +164,7 @@ tap run main.tp         # 文件模式：现有行为，不变
 **阶段 2：版本与锁**
 
 6. ⬜ 锁文件的 `version` / `source` 填全
-7. ⬜ git URL 依赖
+7. ✅ git URL 依赖（可选 `rev`，锁文件记录解析后的 commit）
 
 **阶段 3：注册表**
 

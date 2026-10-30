@@ -1,0 +1,113 @@
+// Git URL 依赖：支持首次 clone、rev 固定、锁文件 commit，以及重复 install 后更新。
+import lib;
+import std.env as env;
+import std.fs as fs;
+import std.vec as vec;
+
+fn main(): i32 {
+    let c: Case = lib.case();
+    fs.make_dir("remote");
+    fs.make_dir("remote/src");
+    let written: i64 = fs.write_text("remote/package.toml",
+        "[package]\nname = \"foo\"\nversion = \"1.0.0\"\nentry = \"src/lib.tp\"\n");
+    written = fs.write_text("remote/src/lib.tp",
+        "pub fn value(): String { return \"old\"; }\n");
+
+    let args: Vec<String> = vec.new<String>();
+    args = args.push("init");
+    args = args.push("--quiet");
+    args = args.push("remote");
+    c = lib.run(c, "git", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    args = vec.new<String>();
+    args = args.push("-C");
+    args = args.push("remote");
+    args = args.push("add");
+    args = args.push(".");
+    c = lib.run(c, "git", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    args = vec.new<String>();
+    args = args.push("-C");
+    args = args.push("remote");
+    args = args.push("-c");
+    args = args.push("user.name=Tap Test");
+    args = args.push("-c");
+    args = args.push("user.email=tap@example.com");
+    args = args.push("commit");
+    args = args.push("--quiet");
+    args = args.push("-m");
+    args = args.push("initial");
+    c = lib.run(c, "git", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    args = vec.new<String>();
+    args = args.push("-C");
+    args = args.push("remote");
+    args = args.push("tag");
+    args = args.push("v1");
+    c = lib.run(c, "git", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    written = fs.write_text("remote/src/lib.tp",
+        "pub fn value(): String { return \"new\"; }\n");
+    args = vec.new<String>();
+    args = args.push("-C");
+    args = args.push("remote");
+    args = args.push("add");
+    args = args.push(".");
+    c = lib.run(c, "git", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    args = vec.new<String>();
+    args = args.push("-C");
+    args = args.push("remote");
+    args = args.push("-c");
+    args = args.push("user.name=Tap Test");
+    args = args.push("-c");
+    args = args.push("user.email=tap@example.com");
+    args = args.push("commit");
+    args = args.push("--quiet");
+    args = args.push("-m");
+    args = args.push("updated");
+    c = lib.run(c, "git", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    written = fs.write_text("package.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nentry = \"src/main.tp\"\n\n" +
+        "[dependencies]\nfoo = { git = \"remote\", rev = \"v1\" }\n");
+    fs.make_dir("src");
+    written = fs.write_text("src/main.tp",
+        "import foo.lib;\nfn main(): i32 { if (lib.value() == \"old\") { return 0; } return 1; }\n");
+
+    args = vec.new<String>();
+    args = args.push("install");
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 0);
+    c = lib.expect_contains(c, c.stdout, "安装 git 依赖 foo: clone remote");
+    c = lib.expect_contains(c, c.stdout, "安装 git 依赖 foo: checkout v1");
+    c = lib.expect_contains(c, c.stdout, "已安装 git 依赖 foo (");
+    c = lib.expect_dir(c, "packages/foo/.git");
+    c = lib.expect_contains(c, lib.read(c, "packages/foo/src/lib.tp"), "old");
+    c = lib.expect_contains(c, lib.read(c, "package.lock.toml"), "source = \"git+remote#");
+
+    args = vec.new<String>();
+    args = args.push("run");
+    c = lib.run(c, "tap", args, ".");
+    c = lib.expect_exit(c, 0);
+
+    // 去掉 rev 后再次安装，应 fetch 并切到远端默认分支的最新 commit。
+    written = fs.write_text("package.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nentry = \"src/main.tp\"\n\n" +
+        "[dependencies]\nfoo = { git = \"remote\" }\n");
+    args = vec.new<String>();
+    args = args.push("install");
+    c = lib.run(c, env.var("TAPM"), args, ".");
+    c = lib.expect_exit(c, 0);
+    c = lib.expect_contains(c, c.stdout, "安装 git 依赖 foo: fetch");
+    c = lib.expect_contains(c, c.stdout, "安装 git 依赖 foo: checkout origin/HEAD");
+    c = lib.expect_contains(c, lib.read(c, "packages/foo/src/lib.tp"), "new");
+
+    return lib.finish(c);
+}

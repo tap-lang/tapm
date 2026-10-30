@@ -21,10 +21,12 @@ pub fn join_path(left: String, right: String): String {
     return text;
 }
 
-// 一个依赖。阶段 1 只支持 path 依赖，所以 path 是必填的。
+// 一个依赖。path 和 git 二选一；Git 依赖可用 rev 固定到 commit、tag 或 branch。
 pub struct Dependency {
     name: String,
     path: String,
+    git: String,
+    rev: String,
 }
 
 // 一个包的清单。
@@ -73,11 +75,13 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
     let all_keys: Vec<String> = toml.keys_with_prefix(document, prefix);
     let names: Vec<String> = vec.new();
     let paths: Vec<String> = vec.new();
+    let git_urls: Vec<String> = vec.new();
+    let revisions: Vec<String> = vec.new();
     let index: uint = 0;
     while (index < all_keys.len()) {
         let key: String = all_keys.get(index);
         let rest: String = key.slice(prefix.len(), key.len());
-        // 只认 `dependencies.<名>`（表形式）或 `dependencies.<名>.path`（内联表形式）。
+        // 依赖名来自 `dependencies.<名>`，内联表可继续带 path / git / rev 子键。
         let dot: i64 = find_byte(rest, 46); // '.'
         let dependency_name: String = "";
         if (dot < 0) {
@@ -89,6 +93,10 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
             names = vec.push(names, dependency_name);
             paths = vec.push(paths,
                 toml.get(document, join_key(prefix, dependency_name, ".path")));
+            git_urls = vec.push(git_urls,
+                toml.get(document, join_key(prefix, dependency_name, ".git")));
+            revisions = vec.push(revisions,
+                toml.get(document, join_key(prefix, dependency_name, ".rev")));
         }
         index = index + 1;
     }
@@ -101,11 +109,15 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
         dependencies = vec.push(dependencies, Dependency {
             name: names.get(item),
             path: paths.get(item),
+            git: git_urls.get(item),
+            rev: revisions.get(item),
         });
         item = item + 1;
     }
     vec.free(names);
     vec.free(paths);
+    vec.free(git_urls);
+    vec.free(revisions);
 
     return Result<Manifest, String>.Ok(Manifest {
         root: root,

@@ -4,4 +4,5 @@ version = "0.1.0"
 entry = "src/main.tp"
 
 [dependencies]
-process = { path = "../process" }
+# process = { path = "../process" }
+process = { git = "https://github.com/tap-lang/process.git", rev = "main" }

@@ -10,6 +10,7 @@
 //
 //     [dependencies]
 //     bar = { path = "../bar" }  ->  "dependencies.bar.path" = "../bar"
+//     baz = { git = "URL" }      ->  "dependencies.baz.git"  = "URL"
 //     foo = "1.0.0"              ->  "dependencies.foo"      = "1.0.0"
 //
 // 这样不需要 map（tap 没有哈希表），线性查找对清单这种规模完全够。

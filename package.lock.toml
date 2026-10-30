@@ -4,5 +4,5 @@ version = 1
 [[package]]
 name = "process"
 version = ""
-source = "path+../../process"
+source = "git+https://github.com/tap-lang/process.git#fbc94e459d7d0df708ee085246c76bcdc792daf3"
 

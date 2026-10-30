@@ -1,160 +1,349 @@
 // 展开依赖并把它们接进 packages/。
 //
-// 阶段 1 只支持 path 依赖：把 `packages/<名字>` 做成指向清单里那个路径的符号链接。
-// 依赖平铺（不嵌套），传递依赖也拉平到同一层——tap 没有 ABI、没有 dyn，
-// 同一个包不需要多版本共存，所以平铺是安全的。
+// path 依赖用符号链接接入；Git 依赖 clone 到 packages/<名字>/。依赖保持单层平铺，
+// 传递依赖也进入同一个 packages/ 目录。
 import std.fs;
-import std.string_builder as sb;
-import std.vec;
+import std.vec as vec;
 import package;
+import process.command as proc;
 
-// 符号链接的目标。
-//
-// 链接位于 `<包根>/packages/<名字>`，而清单里的 path 是相对包根的，
-// 所以相对路径要先把 packages/ 这一层退掉：`../bar` 变成 `../../bar`。
-fn link_target(path: String): String {
-    if (path.len() > 0 && path.byte_at(0) == 47) { // '/'：绝对路径，原样用
+// 链接位于根包的 packages/ 下。根包自己的相对 path 依赖可以保留相对链接；
+// 传递依赖的 path 则相对于其声明者解析，用绝对路径避免链接基准跑偏。
+fn link_target(root: String, consumer: String, path: String): String {
+    if (path.len() > 0 && path.byte_at(0) == 47) { // '/'：绝对路径
         return path;
     }
-    let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, "../");
-    builder = sb.append(builder, path);
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
-    return text;
+    if (consumer == root) {
+        return "../" + path;
+    }
+    return package.join_path(consumer, path);
 }
 
-// 收集结果。
-//
-// Vec 是值类型（结构体里存的是指向堆的指针），在函数里 push 只改到副本的 len，
-// 调用方看不到——所以这里把三个表装进结构体一起返回。
+struct GitResult {
+    error: String,
+    stdout: String,
+}
+
+fn git_failed(result: GitResult): bool {
+    let message: String = result.error;
+    return message.len() > 0;
+}
+
+// 不经过 shell，URL、revision 和路径都作为独立 argv 传给 git。
+fn run_git(arguments: Vec<String>, working_dir: String, action: String): GitResult {
+    let command: Command = proc.new("git");
+    command = proc.args(command, arguments);
+    if (working_dir.len() > 0) {
+        command = proc.current_dir(command, working_dir);
+    }
+    vec.free(arguments);
+
+    let result: Result<Output, String> = proc.output(command);
+    match (result) {
+        Result.Ok(value) => {
+            if (value.status != 0) {
+                let detail: String = value.stderr;
+                if (detail.len() == 0) {
+                    detail = value.stdout;
+                }
+                return GitResult {
+                    error: action + " failed: " + detail,
+                    stdout: value.stdout,
+                };
+            }
+            return GitResult { error: "", stdout: value.stdout };
+        }
+        Result.Err(reason) => {
+            return GitResult { error: action + " failed: " + reason, stdout: "" };
+        }
+    }
+}
+
+// 去掉 git rev-parse 输出末尾的换行。
+fn trim_line(value: String): String {
+    let end: uint = value.len();
+    while (end > 0 &&
+           (value.byte_at(end - 1) == 10 || value.byte_at(end - 1) == 13)) {
+        end = end - 1;
+    }
+    return value.slice(0, end);
+}
+
+// 清单中的本地相对 Git URL 以声明该依赖的包为基准。网络 URL、SSH URL 和绝对路径原样用。
+fn resolved_git_url(url: String, consumer: String): String {
+    if (url.starts_with("/") || url.contains("://") || url.contains(":")) {
+        return url;
+    }
+    return package.join_path(consumer, url);
+}
+
+// clone 或更新一个 Git 依赖，成功时 stdout 是最终检出的 commit。
+fn install_git(name: String, url: String, revision: String,
+               destination: String, consumer: String): GitResult {
+    let step: GitResult = GitResult { error: "", stdout: "" };
+    let effective_url: String = resolved_git_url(url, consumer);
+
+    if (fs.is_dir(destination)) {
+        print("安装 git 依赖 %s: fetch\n", name);
+        let set_url: Vec<String> = vec.new<String>();
+        set_url = set_url.push("-C");
+        set_url = set_url.push(destination);
+        set_url = set_url.push("remote");
+        set_url = set_url.push("set-url");
+        set_url = set_url.push("origin");
+        set_url = set_url.push(effective_url);
+        step = run_git(set_url, consumer, "git remote set-url");
+        if (git_failed(step)) {
+            return step;
+        }
+
+        let fetch: Vec<String> = vec.new<String>();
+        fetch = fetch.push("-C");
+        fetch = fetch.push(destination);
+        fetch = fetch.push("fetch");
+        fetch = fetch.push("--quiet");
+        fetch = fetch.push("--all");
+        fetch = fetch.push("--tags");
+        fetch = fetch.push("--prune");
+        step = run_git(fetch, consumer, "git fetch");
+        if (git_failed(step)) {
+            return step;
+        }
+    } else {
+        print("安装 git 依赖 %s: clone %s\n", name, url);
+        // 清掉可能遗留的文件或断链；非空目录不会被 remove_entry 误删。
+        fs.remove_entry(destination);
+        let clone: Vec<String> = vec.new<String>();
+        clone = clone.push("clone");
+        clone = clone.push("--quiet");
+        clone = clone.push("--");
+        clone = clone.push(effective_url);
+        clone = clone.push(destination);
+        step = run_git(clone, consumer, "git clone");
+        if (git_failed(step)) {
+            return step;
+        }
+    }
+
+    let target: String = "origin/HEAD";
+    if (revision.len() > 0) {
+        // 分支优先解析到远端跟踪分支；commit 和 tag 则直接使用原 revision。
+        let verify: Vec<String> = vec.new<String>();
+        verify = verify.push("-C");
+        verify = verify.push(destination);
+        verify = verify.push("rev-parse");
+        verify = verify.push("--verify");
+        verify = verify.push("refs/remotes/origin/" + revision);
+        let verified: GitResult = run_git(verify, consumer, "git rev-parse");
+        if (!git_failed(verified)) {
+            target = "origin/" + revision;
+        } else {
+            target = revision;
+        }
+    }
+
+    print("安装 git 依赖 %s: checkout %s\n", name, target);
+    let checkout: Vec<String> = vec.new<String>();
+    checkout = checkout.push("-C");
+    checkout = checkout.push(destination);
+    checkout = checkout.push("checkout");
+    checkout = checkout.push("--quiet");
+    checkout = checkout.push("--detach");
+    checkout = checkout.push(target);
+    step = run_git(checkout, consumer, "git checkout");
+    if (git_failed(step)) {
+        return step;
+    }
+
+    let head: Vec<String> = vec.new<String>();
+    head = head.push("-C");
+    head = head.push(destination);
+    head = head.push("rev-parse");
+    head = head.push("HEAD");
+    step = run_git(head, consumer, "git rev-parse HEAD");
+    if (git_failed(step)) {
+        return step;
+    }
+    let commit: String = trim_line(step.stdout);
+    print("已安装 git 依赖 %s (%s)\n", name, commit);
+    return GitResult { error: "", stdout: commit };
+}
+
+// 收集结果。git_urls 为空表示对应项是 path 依赖。
 pub struct Collected {
     names: Vec<String>,
     targets: Vec<String>,
+    git_urls: Vec<String>,
     versions: Vec<String>,
+    sources: Vec<String>,
+    error: String,
 }
 
-// 收集全部依赖（含传递依赖），平铺去重。
-fn collect(root: String): Collected {
-    let names: Vec<String> = vec.new();
-    let targets: Vec<String> = vec.new();
-    let versions: Vec<String> = vec.new();
-    let roots: Vec<String> = vec.new();
+// 收集全部依赖（含传递依赖），平铺去重。Git 包必须先落盘，才能继续读取其清单。
+fn collect(root: String, packages: String): Collected {
+    let names: Vec<String> = vec.new<String>();
+    let targets: Vec<String> = vec.new<String>();
+    let git_urls: Vec<String> = vec.new<String>();
+    let versions: Vec<String> = vec.new<String>();
+    let sources: Vec<String> = vec.new<String>();
+    let roots: Vec<String> = vec.new<String>();
+    let error: String = "";
 
-    roots = vec.push(roots, root);
+    roots = roots.push(root);
     let head: uint = 0;
-    while (head < roots.len()) {
+    while (head < roots.len() && error.len() == 0) {
         let consumer: String = roots.get(head);
         head = head + 1;
 
         let loaded: Result<Manifest, String> = package.load_manifest(consumer);
         if (is_err(loaded)) {
+            let reason: String = match (loaded) {
+                Result.Ok(value) => "",
+                Result.Err(message) => message,
+            };
+            error = "cannot load dependency package at " + consumer + ": " + reason;
             continue;
         }
-        let manifest: Manifest = unwrap_or(loaded, package.blank_manifest());
-        // Vec 是值类型：manifest.dependencies 和下面这个局部变量共享同一块堆缓冲，
-        // 所以必须用完再释放，提前 free 会变成 use-after-free。
+        let manifest: Manifest = match (loaded) {
+            Result.Ok(value) => value,
+            Result.Err(reason) => package.blank_manifest(),
+        };
         let dependencies: Vec<Dependency> = manifest.dependencies;
 
         let index: uint = 0;
-        while (index < dependencies.len()) {
+        while (index < dependencies.len() && error.len() == 0) {
             let dependency: Dependency = dependencies.get(index);
             index = index + 1;
 
-            // 嵌套字段上不能直接调方法，先取出来。
             let dependency_path: String = dependency.path;
-            if (dependency_path.len() == 0) {
-                continue; // 非 path 依赖阶段 1 不支持，跳过
+            let git_url: String = dependency.git;
+            if (dependency_path.len() > 0 && git_url.len() > 0) {
+                error = "dependency '" + dependency.name +
+                    "' cannot specify both path and git";
+                continue;
+            }
+            if (dependency_path.len() == 0 && git_url.len() == 0) {
+                error = "dependency '" + dependency.name +
+                    "' must specify path or git";
+                continue;
             }
             if (package.contains(names, dependency.name)) {
                 continue;
             }
 
-            let dependency_root: String =
-                package.join_path(consumer, dependency_path);
-            names = vec.push(names, dependency.name);
-            targets = vec.push(targets, link_target(dependency_path));
-            roots = vec.push(roots, dependency_root);
-
-            // TODO: 这里本该读依赖自己的清单拿版本号。实测「再调一次 load_manifest
-            // 并 free 掉结果」会段错误（use-after-free 的嫌疑最大，但还没定位到具体点），
-            // 所以先留空。锁文件的 version 字段因此是空的。
-            versions = vec.push(versions, "");
+            if (git_url.len() > 0) {
+                let destination: String = package.join_path(packages, dependency.name);
+                let installed: GitResult =
+                    install_git(dependency.name, git_url, dependency.rev,
+                                destination, consumer);
+                if (git_failed(installed)) {
+                    error = "dependency '" + dependency.name + "': " + installed.error;
+                    continue;
+                }
+                names = names.push(dependency.name);
+                targets = targets.push(destination);
+                git_urls = git_urls.push(git_url);
+                versions = versions.push("");
+                sources = sources.push("git+" + git_url + "#" + installed.stdout);
+                roots = roots.push(destination);
+            } else {
+                let dependency_root: String =
+                    package.join_path(consumer, dependency_path);
+                let target: String =
+                    link_target(root, consumer, dependency_path);
+                names = names.push(dependency.name);
+                targets = targets.push(target);
+                git_urls = git_urls.push("");
+                versions = versions.push("");
+                sources = sources.push("path+" + target);
+                roots = roots.push(dependency_root);
+            }
         }
 
         package.free_manifest(manifest);
     }
 
     vec.free(roots);
-    return Collected { names: names, targets: targets, versions: versions };
+    return Collected {
+        names: names,
+        targets: targets,
+        git_urls: git_urls,
+        versions: versions,
+        sources: sources,
+        error: error,
+    };
 }
 
 pub fn free_collected(collected: Collected): i32 {
+    vec.free(collected.sources);
     vec.free(collected.versions);
+    vec.free(collected.git_urls);
     vec.free(collected.targets);
     return vec.free(collected.names);
 }
 
-// 写锁文件。格式参考 Cargo.lock：一张 `[[package]]` 数组。
-fn write_lock(
-    root: String, names: Vec<String>, versions: Vec<String>,
-    targets: Vec<String>): i64 {
-    let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, "# 自动生成，请勿手工修改\nversion = 1\n\n");
-
+// 写锁文件。Git source 包含实际检出的 commit。
+fn write_lock(root: String, names: Vec<String>, versions: Vec<String>,
+              sources: Vec<String>): i64 {
+    let text: String = "# 自动生成，请勿手工修改\nversion = 1\n\n";
     let index: uint = 0;
     while (index < names.len()) {
-        builder = sb.append(builder, "[[package]]\nname = \"");
-        builder = sb.append(builder, names.get(index));
-        builder = sb.append(builder, "\"\nversion = \"");
-        builder = sb.append(builder, versions.get(index));
-        builder = sb.append(builder, "\"\nsource = \"path+");
-        builder = sb.append(builder, targets.get(index));
-        builder = sb.append(builder, "\"\n\n");
+        text = text + "[[package]]\nname = \"" + names.get(index) +
+            "\"\nversion = \"" + versions.get(index) +
+            "\"\nsource = \"" + sources.get(index) + "\"\n\n";
         index = index + 1;
     }
-
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
     return fs.write_text(package.join_path(root, "package.lock.toml"), text);
 }
 
-// 装依赖：读清单 → 展开（含传递）→ 在 packages/ 下建符号链接 → 写锁文件。
+// 装依赖：读清单 → 展开（含传递）→ 安装到 packages/ → 写锁文件。
 pub fn install(root: String): Result<i32, String> {
-    let collected: Collected = collect(root);
-    let names: Vec<String> = collected.names;
-    let targets: Vec<String> = collected.targets;
-    let versions: Vec<String> = collected.versions;
-
     let packages: String = package.join_path(root, "packages");
     if (fs.make_dir(packages) != 0) {
-        free_collected(collected);
         return Result<i32, String>.Err("cannot create the packages directory");
     }
 
+    let collected: Collected = collect(root, packages);
+    let collected_error: String = collected.error;
+    if (collected_error.len() > 0) {
+        let message: String = collected_error;
+        free_collected(collected);
+        return Result<i32, String>.Err(message);
+    }
+    let names: Vec<String> = collected.names;
+    let targets: Vec<String> = collected.targets;
+    let git_urls: Vec<String> = collected.git_urls;
+    let versions: Vec<String> = collected.versions;
+    let sources: Vec<String> = collected.sources;
+
     let index: uint = 0;
     while (index < names.len()) {
-        let link: String = package.join_path(packages, names.get(index));
-        // 旧链接先清掉；失败无所谓（本来就没有）。
-        fs.remove_entry(link);
-        if (fs.symlink(targets.get(index), link) != 0) {
-            free_collected(collected);
-            return Result<i32, String>.Err(
-                "cannot create a symbolic link (on Windows this needs developer mode)");
+        let git_url: String = git_urls.get(index);
+        if (git_url.len() == 0) {
+            let name: String = names.get(index);
+            let target: String = targets.get(index);
+            let link: String = package.join_path(packages, name);
+            print("安装 path 依赖 %s: link %s\n", name, target);
+            fs.remove_entry(link);
+            if (fs.symlink(target, link) != 0) {
+                free_collected(collected);
+                return Result<i32, String>.Err(
+                    "cannot create a symbolic link (on Windows this needs developer mode)");
+            }
+            print("已安装 path 依赖 %s\n", name);
         }
         index = index + 1;
     }
 
-    let written: i64 = write_lock(root, names, versions, targets);
+    let written: i64 = write_lock(root, names, versions, sources);
     free_collected(collected);
-
     if (written < 0) {
         return Result<i32, String>.Err("cannot write package.lock.toml");
     }
     return Result<i32, String>.Ok(0);
 }
 
-// 列出 packages/ 下已经接上的依赖，供 `tapm list` 用。
+// 列出 packages/ 下已经接上的依赖。
 pub fn list(root: String): Result<Vec<String>, String> {
     let packages: String = package.join_path(root, "packages");
     if (!fs.is_dir(packages)) {

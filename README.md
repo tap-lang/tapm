@@ -27,10 +27,24 @@ entry = "src/main.tp"
 
 [dependencies]
 bar = { path = "../bar" }
+foo = { git = "https://github.com/example/foo.git", rev = "v1.0.0" }
 ```
 
 `tapm install` 会把 `packages/bar` 做成指向 `../bar` 的**符号链接**（相对链接，
-本地改动实时生效），之后 `tap build` 就能通过 `import bar.lib` 找到它。
+本地改动实时生效），并把 Git 依赖 clone 到 `packages/foo`。`rev` 可省略；省略时使用
+远端默认分支的最新 commit。之后 `tap build` 就能通过 `import bar.lib` / `import foo.lib`
+找到它们。安装 Git 依赖要求 `git` 在 `PATH` 中。
+
+安装时会显示每个依赖的名字和当前阶段，例如：
+
+```text
+安装 git 依赖 foo: clone https://github.com/example/foo.git
+安装 git 依赖 foo: checkout v1.0.0
+已安装 git 依赖 foo (0123456789abcdef...)
+安装 path 依赖 bar: link ../../bar
+已安装 path 依赖 bar
+已安装依赖
+```
 
 ## 怎么用
 
@@ -105,7 +119,7 @@ tap build                # 产物在 build/tapm
 | `src/main.tp` | 命令分派 |
 | `src/toml.tp` | TOML 子集解析（扁平点分键表示，绕开 tap 没有 map） |
 | `src/package.tp` | 清单加载、路径拼接 |
-| `src/install.tp` | 依赖展开（平铺去重）+ 符号链接 + 锁文件 |
+| `src/install.tp` | path/Git 依赖展开（平铺去重）+ 安装 + 锁文件 |
 | `src/new.tp` | `tapm new`：内嵌的 hello 模板 + 脚手架 |
 
 ## 设计要点
@@ -174,7 +188,8 @@ tap 编译器那一侧的包相关行为（模块解析顺序、包边界规则�
 
 ## 状态
 
-阶段 1（本地 path 依赖）可用，端到端跑通。
+本地 path 依赖和 Git URL 依赖可用，均支持传递依赖和平铺去重。Git 依赖支持可选的
+`rev`（commit、tag 或 branch），锁文件记录实际检出的 commit。
 
 还没做：
 
