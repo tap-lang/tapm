@@ -133,11 +133,11 @@ TAPM=/path/to/tapm tapm test     # 指定要测的二进制
 
 **运行器和用例都是 tap 写的**：
 
-- `src/test.tp` —— 扫描 `tests/cases/*.tp`、给每个用例建独立临时目录、
+- `src/test.tp` —— 扫描 `tests/*.tp`（跳过断言库 `lib.tp`）、给每个用例建独立临时目录、
   用 `tap run` 起进程执行、统计、报告；
 - `tests/lib.tp` —— 断言库：`Case` + `expect_*`，链式返回、失败累加（一条用例里的
   多个断言都会跑到，不会第一个失败就停）；
-- `tests/cases/*.tp` —— 每个用例一个 tap 程序，`main` 返回 0 表示通过。
+- `tests/*.tp` —— 除 `lib.tp` 外，每个文件都是一个 tap 测试程序，`main` 返回 0 表示通过。
 
 ```tap
 fn main(): i32 {
@@ -153,7 +153,8 @@ fn main(): i32 {
 ```
 
 **为什么每个用例起独立进程**：用例会 `new` 出目录、改文件系统，进程隔离是最省事的
-隔离方式；`import lib` 靠 `TAP_MODULE_PATH` 指向 `tests/`，跑在独立进程里路径不会串。
+隔离方式；`TAP_MODULE_PATH` 同时包含 `tests/` 和包的 `src/`：`import lib` 能找到断言库，
+用例也能直接导入被测包的源码模块，不需要额外软链接。调用者已有的模块搜索根会保留在末尾。
 
 **为什么不用 tap 自己的 `run-tests.sh`**：那套只比对 stdout/stderr/exit（用例内嵌期望），
 而 tapm 的命令会改文件系统——覆盖检查、生成物完整性、manifest 内容都得看文件。

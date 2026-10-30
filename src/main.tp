@@ -31,7 +31,7 @@ fn print_usage() {
     print("  new <名字>         按模板生成一个新项目的骨架\n");
     print("  install            读 package.toml，把依赖接进 packages/\n");
     print("  list               列出 packages/ 里已经接上的依赖\n");
-    print("  test               跑 tests/cases 下的用例\n");
+    print("  test               跑 tests 下的用例\n");
     print("  --help,-h          显示这条信息\n");
     print("  --version,-V       显示版本信息\n");
 }
