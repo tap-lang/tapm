@@ -81,6 +81,11 @@ fn main(): i32 {
     written = fs.write_text("src/main.tp",
         "import foo.lib;\nfn main(): i32 { if (lib.value() == \"old\") { return 0; } return 1; }\n");
 
+    // 模拟依赖来源从 path 切换到 git：旧 packages/foo 是指向普通目录的软链接。
+    fs.make_dir("old-path-foo");
+    fs.make_dir("packages");
+    fs.symlink("../old-path-foo", "packages/foo");
+
     args = vec.new<String>();
     args = args.push("install");
     c = lib.run(c, env.var("TAPM"), args, ".");
@@ -88,6 +93,7 @@ fn main(): i32 {
     c = lib.expect_contains(c, c.stdout, "安装 git 依赖 foo: clone remote");
     c = lib.expect_contains(c, c.stdout, "安装 git 依赖 foo: checkout v1");
     c = lib.expect_contains(c, c.stdout, "已安装 git 依赖 foo (");
+    c = lib.expect_contains(c, c.stderr, "Cloning into");
     c = lib.expect_dir(c, "packages/foo/.git");
     c = lib.expect_contains(c, lib.read(c, "packages/foo/src/lib.tp"), "old");
     c = lib.expect_contains(c, lib.read(c, "package.lock.toml"), "source = \"git+remote#");

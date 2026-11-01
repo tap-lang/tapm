@@ -59,6 +59,30 @@ fn run_git(arguments: Vec<String>, working_dir: String, action: String): GitResu
     }
 }
 
+// 继承 tapm 的标准流运行 Git，让 clone/fetch 的进度直接、实时写到用户终端。
+fn run_git_inherit(arguments: Vec<String>,
+                   working_dir: String, action: String): GitResult {
+    let command: Command = proc.new("git");
+    command = proc.args(command, arguments);
+    if (working_dir.len() > 0) {
+        command = proc.current_dir(command, working_dir);
+    }
+    vec.free(arguments);
+
+    let result: Result<i32, String> = proc.status_inherit(command);
+    match (result) {
+        Result.Ok(code) => {
+            if (code != 0) {
+                return GitResult { error: action + " failed", stdout: "" };
+            }
+            return GitResult { error: "", stdout: "" };
+        }
+        Result.Err(reason) => {
+            return GitResult { error: action + " failed: " + reason, stdout: "" };
+        }
+    }
+}
+
 // 去掉 git rev-parse 输出末尾的换行。
 fn trim_line(value: String): String {
     let end: uint = value.len();
@@ -82,8 +106,20 @@ fn install_git(name: String, url: String, revision: String,
                destination: String, consumer: String): GitResult {
     let step: GitResult = GitResult { error: "", stdout: "" };
     let effective_url: String = resolved_git_url(url, consumer);
+    let update_existing: bool = false;
 
     if (fs.is_dir(destination)) {
+        // remove_entry 能删除软链接或空目录，但不会递归删除真实的非空 clone。
+        // 因此来源从 path 切到 git 时会先移除旧软链接；只有保留下来的非空目录才 fetch。
+        if (fs.remove_entry(destination) != 0) {
+            update_existing = true;
+        }
+    } else {
+        // 清掉可能遗留的普通文件或断链。
+        fs.remove_entry(destination);
+    }
+
+    if (update_existing) {
         print("安装 git 依赖 %s: fetch\n", name);
         let set_url: Vec<String> = vec.new<String>();
         set_url = set_url.push("-C");
@@ -101,25 +137,23 @@ fn install_git(name: String, url: String, revision: String,
         fetch = fetch.push("-C");
         fetch = fetch.push(destination);
         fetch = fetch.push("fetch");
-        fetch = fetch.push("--quiet");
+        fetch = fetch.push("--progress");
         fetch = fetch.push("--all");
         fetch = fetch.push("--tags");
         fetch = fetch.push("--prune");
-        step = run_git(fetch, consumer, "git fetch");
+        step = run_git_inherit(fetch, consumer, "git fetch");
         if (git_failed(step)) {
             return step;
         }
     } else {
         print("安装 git 依赖 %s: clone %s\n", name, url);
-        // 清掉可能遗留的文件或断链；非空目录不会被 remove_entry 误删。
-        fs.remove_entry(destination);
         let clone: Vec<String> = vec.new<String>();
         clone = clone.push("clone");
-        clone = clone.push("--quiet");
+        clone = clone.push("--progress");
         clone = clone.push("--");
         clone = clone.push(effective_url);
         clone = clone.push(destination);
-        step = run_git(clone, consumer, "git clone");
+        step = run_git_inherit(clone, consumer, "git clone");
         if (git_failed(step)) {
             return step;
         }

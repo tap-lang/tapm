@@ -46,6 +46,9 @@ foo = { git = "https://github.com/example/foo.git", rev = "v1.0.0" }
 已安装依赖
 ```
 
+`git clone` / `git fetch` 使用继承的标准流并启用 Git 的 `--progress`，对象计数、压缩和接收
+百分比会由 Git 直接实时刷新到终端，不会等命令结束后才一次性显示。
+
 ## 怎么用
 
 需要 tap 编译器在 `PATH` 里（或用完整路径）。
