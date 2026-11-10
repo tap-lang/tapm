@@ -17,6 +17,7 @@
 import std.env as env;
 import std.fs as fs;
 import std.vec as vec;
+import std.vec.Vec;
 import new;
 import install;
 import test;

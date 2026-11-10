@@ -110,7 +110,7 @@ tapm/
 ```bash
 cd <tapm 仓库路径>
 tap run -- help          # 等价于 tap run src/main.tp -- help
-tap build                # 产物在 build/tapm
+tap build                # 产物在 build/tapm（Windows 上是 build/tapm.exe）
 ```
 
 因为它是个包，别人也能 `import tapm.toml` 这样按包边界导入它的模块。
@@ -132,7 +132,8 @@ tap build                # 产物在 build/tapm
 - **`packages/<名字>` 的目录名必须等于清单里的 `name`**。这是和编译器之间的契约：
   编译器只按目录名解析，不读清单。
 - **符号链接优先**（本地改动实时生效）。Windows 上创建符号链接需要管理员权限或
-  开启开发者模式。
+  开启开发者模式；建不出来时退回复制目录树，`install` 会打印一行提示 —— 复制出来的是
+  快照，改动上游不会自动反映。
 
 ## 测试
 
@@ -141,9 +142,6 @@ tapm test                        # 全部
 TEST_FILTER=new tapm test        # 只跑名字含 new 的用例
 TAPM=/path/to/tapm tapm test     # 指定要测的二进制
 ```
-
-**在包根或任意子目录都能跑**：`install` / `list` / `test` 会从当前目录向上找
-`package.toml` 来确定包根（和 cargo 一样），所以 `cd src && tapm test` 也行。
 
 **在包根或任意子目录都能跑**：`install` / `list` / `test` 会从当前目录向上找
 `package.toml` 来确定包根（和 cargo 一样），所以 `cd src && tapm test` 也行。

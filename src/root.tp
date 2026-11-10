@@ -4,6 +4,7 @@
 
 import std.fs as fs;
 import std.string_builder as sb;
+import std.string_builder.StringBuilder;
 
 extern fn getcwd(buffer: *u8, size: u64): *u8;
 
@@ -26,10 +27,12 @@ pub fn current_dir(): String {
         if (ch == 0) {
             break;
         }
-        builder = sb.append_byte(builder, ch);
+        builder.append_byte(ch);
         index = index + 1;
     }
-    return sb.to_string(builder);
+    let text: String = builder.to_string();
+    builder.free();
+    return text;
 }
 
 // 从当前目录向上找含 package.toml 的目录。找不到返回空串。
@@ -55,15 +58,29 @@ pub fn find(): String {
     return "";
 }
 
-// 去掉路径最后一段。`/a/b` → `/a`，`/a` → `/`，`a` → `""`。
+// 本机路径分隔符。POSIX 只有 '/'，但 Windows 的 getcwd 给的是 `\` ——
+// 只认 '/' 的话，在子目录里跑 `tapm test` 会在这里返回空串，然后报
+// 「从当前目录向上找不到 package.toml」（包根下能跑，所以不容易发现）。
+fn is_separator(ch: u8): bool {
+    return ch == 47 || ch == 92;   // '/' 或 '\'
+}
+
+// 去掉路径最后一段。`/a/b` → `/a`，`/a` → `/`，`a` → `""`，`E:/a` → `E:/`。
+// 盘符根（`E:/`）没有上一级，返回 `""` —— 这也是 find 的终止条件之一。
 fn parent_of(path: String): String {
     let index: uint = path.len();
     while (index > 0) {
-        if (path.byte_at(index - 1) == 47) {   // '/'
+        if (is_separator(path.byte_at(index - 1))) {
             if (index == 1) {
-                return "/";
+                return path.slice(0, 1);
             }
-            return path.slice(0, index - 1);
+            let parent: String = path.slice(0, index - 1);
+            // "E:/" 去掉分隔符只剩 "E:"，那已经是「当前盘的工作目录」这种相对语义，
+            // 拼上 "/package.toml" 会变成 "E:package.toml"。
+            if (parent.len() == 2 && parent.byte_at(1) == 58) {   // ':'
+                return "";
+            }
+            return parent;
         }
         index = index - 1;
     }

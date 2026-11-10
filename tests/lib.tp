@@ -6,7 +6,10 @@
 
 import std.fs as fs;
 import std.vec as vec;
+import std.vec.Vec;
 import process.command as proc;
+import process.command.Command;
+import process.command.Output;
 
 pub struct Case {
     failures: i32,

@@ -16,16 +16,18 @@
 // 这样不需要 map（tap 没有哈希表），线性查找对清单这种规模完全够。
 import std.parse;
 import std.string_builder as sb;
+import std.string_builder.StringBuilder;
 import std.vec as vec;
+import std.vec.Vec;
 
 // tap 没有字符串 `+`，拼接要走 StringBuilder。
 fn concat3(a: String, b: String, c: String): String {
     let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, a);
-    builder = sb.append(builder, b);
-    builder = sb.append(builder, c);
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
+    builder.append(a);
+    builder.append(b);
+    builder.append(c);
+    let text: String = builder.to_string();
+    builder.free();
     return text;
 }
 
@@ -104,9 +106,9 @@ fn strip_comment(line: String): String {
 
 // 把一条记录塞进并行表。
 fn push_entry(keys: Vec<String>, values: Vec<String>, key: String, value: String): Toml {
-    let next_keys: Vec<String> = vec.push(keys, key);
-    let next_values: Vec<String> = vec.push(values, value);
-    return Toml { keys: next_keys, values: next_values };
+    keys.push(key);
+    values.push(value);
+    return Toml { keys: keys, values: values };
 }
 
 // 解析 `{ k = "v", k2 = "v2" }` 的内容部分，返回两串（键、值）。
@@ -141,8 +143,8 @@ fn parse_inline_table(body: String): Vec<String> {
                         value.byte_at(value.len() - 1) == 34) {
                         value = value.slice(1, value.len() - 1);
                     }
-                    parts = vec.push(parts, key);
-                    parts = vec.push(parts, value);
+                    parts.push(key);
+                    parts.push(value);
                 }
             }
             start = index + 1;
@@ -285,7 +287,7 @@ pub fn keys_with_prefix(document: Toml, prefix: String): Vec<String> {
     while (index < keys.len()) {
         let key: String = keys.get(index);
         if (key.len() >= prefix.len() && key.slice(0, prefix.len()) == prefix) {
-            matched = vec.push(matched, key);
+            matched.push(key);
         }
         index = index + 1;
     }

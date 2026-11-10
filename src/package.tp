@@ -7,17 +7,20 @@
 //     └─ packages/        <- tapm install 把依赖接到这里
 import std.fs;
 import std.string_builder as sb;
+import std.string_builder.StringBuilder;
 import std.vec;
+import std.vec.Vec;
 import toml;
+import toml.Toml;
 
 // 拼接路径。tap 没有字符串 `+`，这里集中做。
 pub fn join_path(left: String, right: String): String {
     let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, left);
-    builder = sb.append(builder, "/");
-    builder = sb.append(builder, right);
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
+    builder.append(left);
+    builder.append("/");
+    builder.append(right);
+    let text: String = builder.to_string();
+    builder.free();
     return text;
 }
 
@@ -90,12 +93,12 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
             dependency_name = rest.slice(0, dot);
         }
         if (dependency_name.len() > 0 && !contains(names, dependency_name)) {
-            names = vec.push(names, dependency_name);
-            paths = vec.push(paths,
+            names.push(dependency_name);
+            paths.push(
                 toml.get(document, join_key(prefix, dependency_name, ".path")));
-            git_urls = vec.push(git_urls,
+            git_urls.push(
                 toml.get(document, join_key(prefix, dependency_name, ".git")));
-            revisions = vec.push(revisions,
+            revisions.push(
                 toml.get(document, join_key(prefix, dependency_name, ".rev")));
         }
         index = index + 1;
@@ -106,7 +109,7 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
     let dependencies: Vec<Dependency> = vec.new();
     let item: uint = 0;
     while (item < names.len()) {
-        dependencies = vec.push(dependencies, Dependency {
+        dependencies.push(Dependency {
             name: names.get(item),
             path: paths.get(item),
             git: git_urls.get(item),
@@ -142,11 +145,11 @@ pub fn blank_manifest(): Manifest {
 // 拼三段键：prefix + name + suffix。
 fn join_key(prefix: String, name: String, suffix: String): String {
     let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, prefix);
-    builder = sb.append(builder, name);
-    builder = sb.append(builder, suffix);
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
+    builder.append(prefix);
+    builder.append(name);
+    builder.append(suffix);
+    let text: String = builder.to_string();
+    builder.free();
     return text;
 }
 
@@ -182,14 +185,14 @@ pub fn free_manifest(manifest: Manifest): i32 {
 // 把一个包写进锁文件用的文本片段。
 pub fn lock_entry(name: String, version: String, source: String): String {
     let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, "[[package]]\nname = \"");
-    builder = sb.append(builder, name);
-    builder = sb.append(builder, "\"\nversion = \"");
-    builder = sb.append(builder, version);
-    builder = sb.append(builder, "\"\nsource = \"");
-    builder = sb.append(builder, source);
-    builder = sb.append(builder, "\"\n\n");
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
+    builder.append("[[package]]\nname = \"");
+    builder.append(name);
+    builder.append("\"\nversion = \"");
+    builder.append(version);
+    builder.append("\"\nsource = \"");
+    builder.append(source);
+    builder.append("\"\n\n");
+    let text: String = builder.to_string();
+    builder.free();
     return text;
 }

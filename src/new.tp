@@ -13,6 +13,7 @@
 //         └─ main.tp
 import std.fs;
 import std.string_builder as sb;
+import std.string_builder.StringBuilder;
 import package;
 
 // 模板里的项目版本号，和 hello 保持一致。
@@ -21,23 +22,23 @@ const TEMPLATE_VERSION: String = "0.1.0";
 // 拼两段。tap 没有字符串 `+`，集中在这里做。
 fn concat(left: String, right: String): String {
     let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, left);
-    builder = sb.append(builder, right);
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
+    builder.append(left);
+    builder.append(right);
+    let text: String = builder.to_string();
+    builder.free();
     return text;
 }
 
 // package.toml 的内容，只有名字是变量。
 fn package_toml(name: String): String {
     let builder: StringBuilder = sb.new();
-    builder = sb.append(builder, "[package]\nname = \"");
-    builder = sb.append(builder, name);
-    builder = sb.append(builder, "\"\nversion = \"");
-    builder = sb.append(builder, TEMPLATE_VERSION);
-    builder = sb.append(builder, "\"\nentry = \"src/main.tp\"\n");
-    let text: String = sb.to_string(builder);
-    sb.free(builder);
+    builder.append("[package]\nname = \"");
+    builder.append(name);
+    builder.append("\"\nversion = \"");
+    builder.append(TEMPLATE_VERSION);
+    builder.append("\"\nentry = \"src/main.tp\"\n");
+    let text: String = builder.to_string();
+    builder.free();
     return text;
 }
 

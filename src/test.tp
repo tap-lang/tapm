@@ -10,7 +10,10 @@ import std.fs as fs;
 import std.sys as sys;
 import std.env as env;
 import std.vec as vec;
+import std.vec.Vec;
 import process.command as proc;
+import process.command.Command;
+import process.command.Output;
 
 // 从环境变量取值，空则用默认。
 fn setting(name: String, fallback: String): String {
@@ -19,6 +22,66 @@ fn setting(name: String, fallback: String): String {
         return fallback;
     }
     return value;
+}
+
+// 递归删除目录：fs.remove_entry 只能删空目录（和 C 的 rmdir/RemoveDirectory 一致），
+// 所以要自己先清空。以前这里是一句 `sys.system("rm -rf ...")`，但 Windows 上没有
+// rm，而且拼 shell 命令还得处理引号和空格，直接走 fs 更省事。
+fn remove_tree(path: String): i32 {
+    if (!fs.is_dir(path)) {
+        fs.make_writable(path);
+        return fs.remove_entry(path);
+    }
+    let listing: Result<Vec<String>, String> = fs.read_dir(path);
+    if (listing.is_ok()) {
+        let entries: Vec<String> = match (listing) {
+            Result.Ok(value) => value,
+            Result.Err(reason) => vec.new<String>(),
+        };
+        for (let i: i64 = 0; i < entries.len() as i64; i = i + 1) {
+            remove_tree(path + "/" + entries.get(i as uint));
+        }
+        vec.free(entries);
+    }
+    // Git for Windows 把 .git/objects 里的文件设成只读，属性没清掉就删不动。
+    fs.make_writable(path);
+    return fs.remove_entry(path);
+}
+
+// 是不是绝对路径。POSIX 看前缀 `/`；Windows 还要认盘符（`C:/x`、`C:\x`）。
+fn is_absolute(path: String): bool {
+    if (path.starts_with("/")) {
+        return true;
+    }
+    if (path.len() >= 3 && path.byte_at(1) == 58) {
+        return true;
+    }
+    return false;
+}
+
+// 放临时工作目录的地方。POSIX 用 /tmp，Windows 用 TEMP（通常是
+// C:\Users\<用户>\AppData\Local\Temp）—— 直接写 /tmp 在 Windows 上会被解释成
+// 当前盘的根目录，普通用户没权限建。
+fn scratch_dir(): String {
+    if (sys.is_windows()) {
+        let temp: String = env.var("TEMP");
+        if (temp.len() == 0) {
+            temp = env.var("TMP");
+        }
+        if (temp.len() > 0) {
+            return temp + "/tapm-test";
+        }
+    }
+    return "/tmp/tapm-test";
+}
+
+// TAP_MODULE_PATH 是**一个字符串**里的多个根：POSIX 用冒号，Windows 用分号
+// （和 PATH 一样，因为冒号在 Windows 路径里是盘符分隔符）。
+fn module_separator(): String {
+    if (sys.is_windows()) {
+        return ";";
+    }
+    return ":";
 }
 
 // 收集 tests/ 下的 .tp 文件名。lib.tp 是断言库，不是独立用例。
@@ -37,7 +100,7 @@ fn collect_cases(base: String): Vec<String> {
     for (let i: i64 = 0; i < entries.len() as i64; i = i + 1) {
         let entry: String = entries.get(i as uint);
         if (entry.ends_with(".tp") && entry != "lib.tp") {
-            cases = cases.push(entry);
+            cases.push(entry);
         }
     }
     return cases;
@@ -49,7 +112,7 @@ fn run_case(file: String, tap_path: String, tapm_path: String,
             work_dir: String, std_path: String): Result<Output, String> {
     let name: String = file.slice(0, file.len() - 3);
     let work: String = work_dir + "/" + name;
-    sys.system("mkdir -p " + work);
+    fs.make_dir(work);
 
     let command: Command = proc.new(tap_path);
     command = proc.arg(command, "run");
@@ -67,24 +130,31 @@ fn run_case(file: String, tap_path: String, tapm_path: String,
 
 pub fn run(root: String): i32 {
     // 用例在 <root>/tests/.work/<name>/ 里跑，所以路径必须是绝对的。
-    let tapm_path: String = setting("TAPM", root + "/build/tapm");
-    if (!tapm_path.starts_with("/")) {
+    // 产物名跟平台走：`tap build` 在 Windows 上给的是 build/tapm.exe。
+    let executable_suffix: String = "";
+    if (sys.is_windows()) {
+        executable_suffix = ".exe";
+    }
+    let tapm_path: String = setting(
+        "TAPM", root + "/build/tapm" + executable_suffix);
+    if (!is_absolute(tapm_path)) {
         tapm_path = root + "/" + tapm_path;
     }
     let tap_path: String = setting("TAP", "tap");
     let std_path: String = env.var("TAP_STD_PATH");
     let tests_root: String = root + "/tests";
-    // 编译器支持用冒号分隔多个 TAP_MODULE_PATH 根。测试辅助模块放在 tests/，
+    // 编译器支持用平台分隔符列出多个 TAP_MODULE_PATH 根。测试辅助模块放在 tests/，
     // 被测包模块放在 src/；调用者额外提供的模块根继续保留在末尾。
-    let module_path: String = tests_root + ":" + root + "/src";
+    let separator: String = module_separator();
+    let module_path: String = tests_root + separator + root + "/src";
     let inherited_module_path: String = env.var("TAP_MODULE_PATH");
     if (inherited_module_path.len() > 0) {
-        module_path = module_path + ":" + inherited_module_path;
+        module_path = module_path + separator + inherited_module_path;
     }
     // 工作目录放在**包外**：用例要测「空目录下的行为」（比如 list 找不到 packages/），
     // 如果放在 <root>/tests/.work/ 里，tapm 的向上查找会找到 tapm 自己的包根，
     // 用例就测不出东西了。
-    let work_dir: String = "/tmp/tapm-test";
+    let work_dir: String = scratch_dir();
 
     let cases: Vec<String> = collect_cases(root);
     if (cases.len() == 0) {
@@ -94,7 +164,8 @@ pub fn run(root: String): i32 {
         return 2;
     }
 
-    sys.system("rm -rf " + work_dir + " && mkdir -p " + work_dir);
+    remove_tree(work_dir);
+    fs.make_dir(work_dir);
 
     let passed: i32 = 0;
     let failed: i32 = 0;
@@ -125,19 +196,19 @@ pub fn run(root: String): i32 {
                     print("%s", value.stdout);
                     print("%s", value.stderr);
                     failed = failed + 1;
-                    failed_names = failed_names.push(case_path);
+                    failed_names.push(case_path);
                 }
             }
             Result.Err(reason) => {
                 print("FAIL %s\n", case_path);
                 print("  启动失败: %s\n", reason);
                 failed = failed + 1;
-                failed_names = failed_names.push(case_path);
+                failed_names.push(case_path);
             }
         }
     }
 
-    sys.system("rm -rf " + work_dir);
+    remove_tree(work_dir);
 
     print("\n%d passed, %d failed\n", passed, failed);
     if (failed > 0) {

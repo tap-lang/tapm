@@ -1,6 +1,12 @@
 PREFIX ?= /usr/local
 
-TARGET = ./build/tap
+# `tap build` 在包模式下把产物写到 <包根>/build/<包名>，Windows 上带 .exe。
+EXE :=
+ifeq ($(OS),Windows_NT)
+    EXE = .exe
+endif
+
+TARGET = ./build/tapm$(EXE)
 
 all: $(TARGET)
 
@@ -8,11 +14,15 @@ $(TARGET):
 	tap build
 
 test: $(TARGET)
-	./build/tapm test
+	$(TARGET) test
 
-install: build
+install: $(TARGET)
 	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 755 build/tapm $(DESTDIR)$(PREFIX)/bin/tapm
+	install -m 755 build/tapm$(EXE) $(DESTDIR)$(PREFIX)/bin/tapm$(EXE)
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/tapm
+	rm -f $(DESTDIR)$(PREFIX)/bin/tapm$(EXE)
+
+# 清理生成的文件
+clean:
+	rm -rf ./build

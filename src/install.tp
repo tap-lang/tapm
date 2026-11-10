@@ -3,9 +3,15 @@
 // path 依赖用符号链接接入；Git 依赖 clone 到 packages/<名字>/。依赖保持单层平铺，
 // 传递依赖也进入同一个 packages/ 目录。
 import std.fs;
+import std.fs.File;
 import std.vec as vec;
+import std.vec.Vec;
 import package;
+import package.Dependency;
+import package.Manifest;
 import process.command as proc;
+import process.command.Command;
+import process.command.Output;
 
 // 链接位于根包的 packages/ 下。根包自己的相对 path 依赖可以保留相对链接；
 // 传递依赖的 path 则相对于其声明者解析，用绝对路径避免链接基准跑偏。
@@ -122,25 +128,25 @@ fn install_git(name: String, url: String, revision: String,
     if (update_existing) {
         print("安装 git 依赖 %s: fetch\n", name);
         let set_url: Vec<String> = vec.new<String>();
-        set_url = set_url.push("-C");
-        set_url = set_url.push(destination);
-        set_url = set_url.push("remote");
-        set_url = set_url.push("set-url");
-        set_url = set_url.push("origin");
-        set_url = set_url.push(effective_url);
+        set_url.push("-C");
+        set_url.push(destination);
+        set_url.push("remote");
+        set_url.push("set-url");
+        set_url.push("origin");
+        set_url.push(effective_url);
         step = run_git(set_url, consumer, "git remote set-url");
         if (git_failed(step)) {
             return step;
         }
 
         let fetch: Vec<String> = vec.new<String>();
-        fetch = fetch.push("-C");
-        fetch = fetch.push(destination);
-        fetch = fetch.push("fetch");
-        fetch = fetch.push("--progress");
-        fetch = fetch.push("--all");
-        fetch = fetch.push("--tags");
-        fetch = fetch.push("--prune");
+        fetch.push("-C");
+        fetch.push(destination);
+        fetch.push("fetch");
+        fetch.push("--progress");
+        fetch.push("--all");
+        fetch.push("--tags");
+        fetch.push("--prune");
         step = run_git_inherit(fetch, consumer, "git fetch");
         if (git_failed(step)) {
             return step;
@@ -148,11 +154,11 @@ fn install_git(name: String, url: String, revision: String,
     } else {
         print("安装 git 依赖 %s: clone %s\n", name, url);
         let clone: Vec<String> = vec.new<String>();
-        clone = clone.push("clone");
-        clone = clone.push("--progress");
-        clone = clone.push("--");
-        clone = clone.push(effective_url);
-        clone = clone.push(destination);
+        clone.push("clone");
+        clone.push("--progress");
+        clone.push("--");
+        clone.push(effective_url);
+        clone.push(destination);
         step = run_git_inherit(clone, consumer, "git clone");
         if (git_failed(step)) {
             return step;
@@ -163,11 +169,11 @@ fn install_git(name: String, url: String, revision: String,
     if (revision.len() > 0) {
         // 分支优先解析到远端跟踪分支；commit 和 tag 则直接使用原 revision。
         let verify: Vec<String> = vec.new<String>();
-        verify = verify.push("-C");
-        verify = verify.push(destination);
-        verify = verify.push("rev-parse");
-        verify = verify.push("--verify");
-        verify = verify.push("refs/remotes/origin/" + revision);
+        verify.push("-C");
+        verify.push(destination);
+        verify.push("rev-parse");
+        verify.push("--verify");
+        verify.push("refs/remotes/origin/" + revision);
         let verified: GitResult = run_git(verify, consumer, "git rev-parse");
         if (!git_failed(verified)) {
             target = "origin/" + revision;
@@ -178,22 +184,22 @@ fn install_git(name: String, url: String, revision: String,
 
     print("安装 git 依赖 %s: checkout %s\n", name, target);
     let checkout: Vec<String> = vec.new<String>();
-    checkout = checkout.push("-C");
-    checkout = checkout.push(destination);
-    checkout = checkout.push("checkout");
-    checkout = checkout.push("--quiet");
-    checkout = checkout.push("--detach");
-    checkout = checkout.push(target);
+    checkout.push("-C");
+    checkout.push(destination);
+    checkout.push("checkout");
+    checkout.push("--quiet");
+    checkout.push("--detach");
+    checkout.push(target);
     step = run_git(checkout, consumer, "git checkout");
     if (git_failed(step)) {
         return step;
     }
 
     let head: Vec<String> = vec.new<String>();
-    head = head.push("-C");
-    head = head.push(destination);
-    head = head.push("rev-parse");
-    head = head.push("HEAD");
+    head.push("-C");
+    head.push(destination);
+    head.push("rev-parse");
+    head.push("HEAD");
     step = run_git(head, consumer, "git rev-parse HEAD");
     if (git_failed(step)) {
         return step;
@@ -223,7 +229,7 @@ fn collect(root: String, packages: String): Collected {
     let roots: Vec<String> = vec.new<String>();
     let error: String = "";
 
-    roots = roots.push(root);
+    roots.push(root);
     let head: uint = 0;
     while (head < roots.len() && error.len() == 0) {
         let consumer: String = roots.get(head);
@@ -274,23 +280,23 @@ fn collect(root: String, packages: String): Collected {
                     error = "dependency '" + dependency.name + "': " + installed.error;
                     continue;
                 }
-                names = names.push(dependency.name);
-                targets = targets.push(destination);
-                git_urls = git_urls.push(git_url);
-                versions = versions.push("");
-                sources = sources.push("git+" + git_url + "#" + installed.stdout);
-                roots = roots.push(destination);
+                names.push(dependency.name);
+                targets.push(destination);
+                git_urls.push(git_url);
+                versions.push("");
+                sources.push("git+" + git_url + "#" + installed.stdout);
+                roots.push(destination);
             } else {
                 let dependency_root: String =
                     package.join_path(consumer, dependency_path);
                 let target: String =
                     link_target(root, consumer, dependency_path);
-                names = names.push(dependency.name);
-                targets = targets.push(target);
-                git_urls = git_urls.push("");
-                versions = versions.push("");
-                sources = sources.push("path+" + target);
-                roots = roots.push(dependency_root);
+                names.push(dependency.name);
+                targets.push(target);
+                git_urls.push("");
+                versions.push("");
+                sources.push("path+" + target);
+                roots.push(dependency_root);
             }
         }
 
@@ -314,6 +320,74 @@ pub fn free_collected(collected: Collected): i32 {
     vec.free(collected.git_urls);
     vec.free(collected.targets);
     return vec.free(collected.names);
+}
+
+// 按字节复制一个文件，不经过文本解码（依赖里可能有图片、`.a` 之类）。
+fn copy_file(source: String, destination: String): i32 {
+    let input: File = fs.open(source, "rb");
+    if (!fs.is_open(input)) {
+        return -1;
+    }
+    let output: File = fs.open(destination, "wb");
+    if (!fs.is_open(output)) {
+        fs.close(input);
+        return -1;
+    }
+    let running: bool = true;
+    let result: i32 = 0;
+    while (running) {
+        let chunk: String = fs.read(input, 65536);
+        if (chunk.len() == 0) {
+            running = false;
+        } else if (fs.write(output, chunk) < 0) {
+            result = -1;
+            running = false;
+        }
+    }
+    fs.close(input);
+    fs.close(output);
+    return result;
+}
+
+// 递归复制目录树。path 依赖在 POSIX 上用软链接接入，但 Windows 建符号链接需要
+// 开发者模式或管理员权限，普通用户直接失败 —— 那种情况退回复制。复制出来的是
+// 快照，后续上游改动不会自动反映，这一点在 install 的输出里说明。
+fn copy_tree(source: String, destination: String): i32 {
+    if (fs.make_dir(destination) != 0) {
+        return -1;
+    }
+    let listing: Result<Vec<String>, String> = fs.read_dir(source);
+    if (!listing.is_ok()) {
+        return -1;
+    }
+    let entries: Vec<String> = match (listing) {
+        Result.Ok(value) => value,
+        Result.Err(reason) => vec.new<String>(),
+    };
+    let result: i32 = 0;
+    for (let i: i64 = 0; i < entries.len() as i64; i = i + 1) {
+        let name: String = entries.get(i as uint);
+        let from: String = source + "/" + name;
+        let to: String = destination + "/" + name;
+        if (fs.is_dir(from)) {
+            if (copy_tree(from, to) != 0) {
+                result = -1;
+            }
+        } else if (copy_file(from, to) != 0) {
+            result = -1;
+        }
+    }
+    vec.free(entries);
+    return result;
+}
+
+// 软链接的 target 是相对**链接所在目录**（packages/）解析的，复制时基准必须一致：
+// 直接把 "../local" 交给 fs 会按当前目录解析，复制到包外面去。
+fn copy_source(packages: String, target: String): String {
+    if (target.len() > 0 && target.byte_at(0) == 47) { // '/'：绝对路径
+        return target;
+    }
+    return packages + "/" + target;
 }
 
 // 写锁文件。Git source 包含实际检出的 commit。
@@ -360,9 +434,14 @@ pub fn install(root: String): Result<i32, String> {
             print("安装 path 依赖 %s: link %s\n", name, target);
             fs.remove_entry(link);
             if (fs.symlink(target, link) != 0) {
-                free_collected(collected);
-                return Result<i32, String>.Err(
-                    "cannot create a symbolic link (on Windows this needs developer mode)");
+                // Windows 上普通用户建不了符号链接；path 依赖退回复制，
+                // 语义上仍是「把依赖装进 packages/」，只是不再跟随上游修改。
+                if (copy_tree(copy_source(packages, target), link) != 0) {
+                    free_collected(collected);
+                    return Result<i32, String>.Err(
+                        "cannot link or copy path dependency '" + name + "'");
+                }
+                print("（无法创建符号链接，已复制目录）\n");
             }
             print("已安装 path 依赖 %s\n", name);
         }
