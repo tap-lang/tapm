@@ -64,6 +64,10 @@ name = "myapp"
 version = "0.1.0"
 entry = "src/main.tp"          # 相对 package.toml 所在目录
 
+[modules]
+test = "tests"                 # import test.lib  ->  tests/lib.tp
+shared = "../shared"           # 相对包根，也可以写绝对路径
+
 [dependencies]
 bar = { path = "../bar" }      # 本地路径依赖
 gitfoo = { git = "https://github.com/example/foo.git", rev = "v1.0.0" }
@@ -78,6 +82,24 @@ foo = "1.0.0"                  # 精确版本，来自注册表（阶段 3）
   编译器只按目录名解析，不读清单。由 `tapm` 保证。
 - 编译器读 `entry` 的方式（极简扫描的边界）见 tap 仓库的
   [`docs/module.md`](https://github.com/tap-lang/tap/blob/main/docs/module.md) 的「包模式」一节。
+
+### [modules]：模块别名
+
+键是模块名的**第一段**，值是目录。`tapm` 把它翻译成 `TAP_MODULE_PATH` 的
+`name=path` 条目再交给编译器 —— **编译器不解析 TOML**，它只认环境变量。
+
+```text
+[modules] test = "tests"   =>   TAP_MODULE_PATH=...:test=<包根>/tests
+import test.lib            =>   <包根>/tests/lib.tp
+```
+
+语义和 `TAP_MODULE_PATH` 的别名完全一致：只认首段、只剥第一段、**命中即独占**
+（不回退到其他搜索根）。名称空间仍是模块名的最后一段，所以 `import test.lib`
+之后调用写 `lib.case()`，不是 `test.lib.case()`。详见 tap 仓库
+[`docs/module.md`](https://github.com/tap-lang/tap/blob/main/docs/module.md) 的「根目录别名」。
+
+范围：目前只有 `tapm test` 会自动带上清单里的别名。直接 `tap build` / `tap run`
+不经过 `tapm`，需要自己设 `TAP_MODULE_PATH`。
 
 ## 锁文件：package.lock.toml
 

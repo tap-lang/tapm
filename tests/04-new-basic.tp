@@ -1,6 +1,6 @@
 // new 的正常路径：建出骨架，三个文件都在，manifest 里写着包名。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.vec as vec;
 import std.vec.Vec;
 import std.env as env;

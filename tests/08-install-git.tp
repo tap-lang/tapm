@@ -1,6 +1,6 @@
 // Git URL 依赖：支持首次 clone、rev 固定、锁文件 commit，以及重复 install 后更新。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.env as env;
 import std.fs as fs;
 import std.vec as vec;

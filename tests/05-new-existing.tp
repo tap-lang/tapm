@@ -2,8 +2,8 @@
 //
 // 覆盖检查是脚手架最重要的一条 —— 用户误敲一次命令就丢掉整个项目，
 // 那比报错难受得多。用哨兵文件确认没被重写。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.fs as fs;
 import std.vec as vec;
 import std.vec.Vec;

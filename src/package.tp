@@ -32,6 +32,15 @@ pub struct Dependency {
     rev: String,
 }
 
+// 一个模块别名：`[modules]` 段的一条 `name = "path"`。
+//
+// name 是模块名的第一段，path 相对包根（也可以写绝对路径）。tapm 把它翻成
+// TAP_MODULE_PATH 的 `name=path` 条目交给编译器 —— 编译器不解析 TOML。
+pub struct ModuleAlias {
+    name: String,
+    path: String,
+}
+
 // 一个包的清单。
 pub struct Manifest {
     root: String,             // 包根目录（绝对或相对于当前目录）
@@ -39,6 +48,7 @@ pub struct Manifest {
     version: String,
     entry: String,
     dependencies: Vec<Dependency>,
+    modules: Vec<ModuleAlias>,
 }
 
 // 把 `dependencies.<名字>` 这类键的前缀切出来。
@@ -104,6 +114,25 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
         index = index + 1;
     }
     vec.free(all_keys);
+
+    // 模块别名：`[modules] name = "path"`，在 TOML 里键是 `modules.<name>`。
+    // 路径原样保留，由调用方决定相对包根还是绝对路径。
+    let module_prefix: String = "modules.";
+    let module_keys: Vec<String> = toml.keys_with_prefix(document, module_prefix);
+    let module_names: Vec<String> = vec.new();
+    let module_paths: Vec<String> = vec.new();
+    let module_index: uint = 0;
+    while (module_index < module_keys.len()) {
+        let key: String = module_keys.get(module_index);
+        let module_name: String = key.slice(module_prefix.len(), key.len());
+        if (module_name.len() > 0) {
+            module_names.push(module_name);
+            module_paths.push(toml.get(document, key));
+        }
+        module_index = module_index + 1;
+    }
+    vec.free(module_keys);
+
     toml.free(document);
 
     let dependencies: Vec<Dependency> = vec.new();
@@ -122,12 +151,25 @@ pub fn load_manifest(root: String): Result<Manifest, String> {
     vec.free(git_urls);
     vec.free(revisions);
 
+    let modules: Vec<ModuleAlias> = vec.new();
+    let module_item: uint = 0;
+    while (module_item < module_names.len()) {
+        modules.push(ModuleAlias {
+            name: module_names.get(module_item),
+            path: module_paths.get(module_item),
+        });
+        module_item = module_item + 1;
+    }
+    vec.free(module_names);
+    vec.free(module_paths);
+
     return Result<Manifest, String>.Ok(Manifest {
         root: root,
         name: name,
         version: version,
         entry: entry,
         dependencies: dependencies,
+        modules: modules,
     });
 }
 
@@ -139,6 +181,7 @@ pub fn blank_manifest(): Manifest {
         version: "",
         entry: "",
         dependencies: vec.new(),
+        modules: vec.new(),
     };
 }
 
@@ -179,7 +222,8 @@ pub fn contains(values: Vec<String>, value: String): bool {
 }
 
 pub fn free_manifest(manifest: Manifest): i32 {
-    return vec.free(manifest.dependencies);
+    vec.free(manifest.dependencies);
+    return vec.free(manifest.modules);
 }
 
 // 把一个包写进锁文件用的文本片段。

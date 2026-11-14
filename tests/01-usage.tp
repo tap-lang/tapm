@@ -1,6 +1,6 @@
 // 不带参数：打印用法，退出码 1（没执行任何命令算失败）。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.vec as vec;
 import std.vec.Vec;
 import std.env as env;

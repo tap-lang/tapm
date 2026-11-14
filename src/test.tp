@@ -14,6 +14,9 @@ import std.vec.Vec;
 import process.command as proc;
 import process.command.Command;
 import process.command.Output;
+import package as pkg;
+import package.Manifest;
+import package.ModuleAlias;
 
 // 从环境变量取值，空则用默认。
 fn setting(name: String, fallback: String): String {
@@ -147,6 +150,24 @@ pub fn run(root: String): i32 {
     // 被测包模块放在 src/；调用者额外提供的模块根继续保留在末尾。
     let separator: String = module_separator();
     let module_path: String = tests_root + separator + root + "/src";
+    // 清单里的 [modules] 别名，翻成 TAP_MODULE_PATH 的 `name=path` 条目 ——
+    // 编译器不解析 TOML，这一步由 tapm 完成。路径相对包根，绝对路径原样用。
+    // 别名只做路径前缀映射，名称空间仍是最后一段：`import test.lib` 之后调用
+    // 照旧写 lib.case()，不是 test.lib.case()。
+    let manifest_result: Result<Manifest, String> = pkg.load_manifest(root);
+    let manifest: Manifest = match (manifest_result) {
+        Result.Ok(value) => value,
+        Result.Err(reason) => pkg.blank_manifest(),
+    };
+    for (let i: i64 = 0; i < manifest.modules.len() as i64; i = i + 1) {
+        let alias: ModuleAlias = manifest.modules.get(i as uint);
+        let target: String = alias.path;
+        if (!is_absolute(target)) {
+            target = root + "/" + target;
+        }
+        module_path = module_path + separator + alias.name + "=" + target;
+    }
+    pkg.free_manifest(manifest);
     let inherited_module_path: String = env.var("TAP_MODULE_PATH");
     if (inherited_module_path.len() > 0) {
         module_path = module_path + separator + inherited_module_path;

@@ -1,6 +1,6 @@
 // path 依赖安装时应显示依赖名、链接目标和完成状态。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.env as env;
 import std.fs as fs;
 import std.vec as vec;

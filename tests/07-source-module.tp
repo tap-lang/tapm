@@ -1,6 +1,6 @@
 // tapm test 应把包的 src/ 加入 TAP_MODULE_PATH，用例无需软链接即可导入源码模块。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import package as pkg;
 
 fn main(): i32 {

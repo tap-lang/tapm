@@ -1,6 +1,6 @@
 // 显式 help：用法 + 退出码 0。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.vec as vec;
 import std.vec.Vec;
 import std.env as env;

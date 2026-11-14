@@ -1,6 +1,6 @@
 // new 缺项目名：提示 + 用法，退出码 1，且不能建出任何东西。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.vec as vec;
 import std.vec.Vec;
 import std.env as env;

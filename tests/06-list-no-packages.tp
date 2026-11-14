@@ -1,8 +1,8 @@
 // list 在有 manifest 但还没有 packages/ 时：明确告诉用户先 install，退出码 1。
 //
 // 要先放一个 package.toml —— tapm 从当前目录向上找它来定包根。
-import lib;
-import lib.Case;
+import test.lib;
+import test.lib.Case;
 import std.fs as fs;
 import std.vec as vec;
 import std.vec.Vec;

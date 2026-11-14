@@ -3,6 +3,11 @@ name = "tapm"
 version = "0.1.0"
 entry = "src/main.tp"
 
+# 模块别名：用例写 `import test.lib` 时解析到 tests/lib.tp。
+# tapm 把它翻成 TAP_MODULE_PATH 的 `test=<包根>/tests` 交给编译器。
+[modules]
+test = "tests"
+
 [dependencies]
 # process = { path = "../process" }
 process = { git = "https://github.com/tap-lang/process.git", rev = "main" }
